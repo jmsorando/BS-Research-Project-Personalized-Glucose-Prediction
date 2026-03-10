@@ -8,7 +8,7 @@ Features: glycaemic context (G), diet composition (Dc), diet temporal (Dt).
 Output: output/feature_matrix.csv
 """
 import sys
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 import pandas as pd
 import numpy as np
