@@ -2,7 +2,7 @@
 """
 Generate an updated patient_extract CSV with CGM-realigned meal times.
 
-Reads the original patient_extract0912_filtered_corrected.csv and the
+Reads the original patient_extract1602_filtered.csv and the
 pipeline output corrected_meal_times_ALL.csv, maps each food item row
 to its meal bundle, and applies the time shift from the CGM realignment.
 

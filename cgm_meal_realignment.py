@@ -45,10 +45,13 @@ def _discover_files():
     for f in SRC.iterdir():
         if not f.is_file() or f.suffix != ".csv": continue
         n = f.name.lower()
-        if "patient_extract" in n and ("corrected" in n or "1602" in n): diary_f = f.name
+        if "patient_extract" in n and ("filtered" in n or "corrected" in n or "1602" in n):
+            # prefer filtered/corrected variants over plain extract
+            if diary_f is None or "filtered" in n or "corrected" in n:
+                diary_f = f.name
         if "myfood24" in n and "matched" in n:          mapping_f = f.name
     # fallbacks
-    if diary_f is None: diary_f = "patient_extract1602.csv"
+    if diary_f is None: diary_f = "patient_extract1602_filtered.csv"
     if mapping_f is None: mapping_f = "MyFood24 ID Matched(Sheet1).csv"
     return diary_f, mapping_f
 
