@@ -21,7 +21,6 @@ BASE         = Path(r"C:\Users\Jose Miguel Sorando\Documents\RP Cleaning 5")
 CGM_DIR      = BASE / "source" / "cgm_data"
 MEAL_FILE    = BASE / "output" / "corrected_meal_times_ALL.csv"
 EXTRACT_FILE = BASE / "output" / "patient_extract1602_realigned.csv"
-MATCH_FILE   = BASE / "source" / "MyFood24 ID Matched(Sheet1).csv"
 SOURCE_FILE  = BASE / "source" / "patient_extract1602.csv"
 OUTPUT_FILE  = BASE / "output" / "feature_matrix.csv"
 
@@ -101,6 +100,53 @@ def _normalise_date(d):
         return pd.Timestamp(d).strftime("%Y-%m-%d")
     except Exception:
         return None
+
+
+# MAGE: mean amplitude of glycaemic excursions — measures glucose swing severity
+def _compute_mage(gl):
+    if len(gl) < 8:
+        return np.nan
+    sd = np.std(gl, ddof=1)
+    if sd == 0 or np.isnan(sd):
+        return np.nan
+    # Identify local peaks (higher than both neighbours) and troughs (lower than both neighbours)
+    extrema_vals = []
+    for i in range(1, len(gl) - 1):
+        if gl[i] > gl[i - 1] and gl[i] > gl[i + 1]:
+            extrema_vals.append(gl[i])
+        elif gl[i] < gl[i - 1] and gl[i] < gl[i + 1]:
+            extrema_vals.append(gl[i])
+    if len(extrema_vals) < 2:
+        return np.nan
+    # Amplitude of each consecutive extremum pair; keep only > 1 SD
+    amplitudes = [abs(extrema_vals[j] - extrema_vals[j - 1])
+                  for j in range(1, len(extrema_vals))]
+    qualifying = [a for a in amplitudes if a > sd]
+    if len(qualifying) == 0:
+        return np.nan
+    return np.mean(qualifying)
+
+
+# Mean |glucose(t) - glucose(t-lag)| for each reading in window matched to a lagged reading
+def _compute_lagged_diffs(cgm, window, lag_minutes, tol_minutes=15, min_pairs=4):
+    ts_all = cgm["ts_utc"].values
+    gl_all = cgm["glucose"].values
+    ts_win = window["ts_utc"].values
+    gl_win = window["glucose"].values
+    tol_ns = np.timedelta64(int(tol_minutes), "m")
+    lag_ns = np.timedelta64(int(lag_minutes), "m")
+    diffs = []
+    for i in range(len(ts_win)):
+        if np.isnan(gl_win[i]):
+            continue
+        target = ts_win[i] - lag_ns
+        time_diffs = np.abs(ts_all - target)
+        nearest_idx = np.argmin(time_diffs)
+        if time_diffs[nearest_idx] <= tol_ns and not np.isnan(gl_all[nearest_idx]):
+            diffs.append(abs(float(gl_win[i]) - float(gl_all[nearest_idx])))
+    if len(diffs) < min_pairs:
+        return np.nan
+    return np.mean(diffs)
 
 
 # ── Step 1: Nutrient Enrichment ──────────────────────────────────
@@ -407,7 +453,8 @@ def step4_glycaemic_features(df, cgm_cache):
     g_cols = ["past_4h_glucose_trend",
               "past_1h_glucose_mean", "past_1h_glucose_sd", "past_1h_glucose_range",
               "mean_glucose_24h", "sd_glucose_24h", "cv_glucose_24h",
-              "glucose_at_t_minus_15", "glucose_at_t_minus_30"]
+              "glucose_at_t_minus_15", "glucose_at_t_minus_30",
+              "mage_24h", "conga2_24h", "modd_24h"]
     for c in g_cols:
         df[c] = np.nan
 
@@ -470,6 +517,22 @@ def step4_glycaemic_features(df, cgm_cache):
                 df.loc[idx, "sd_glucose_24h"] = round(s24, 4)
                 df.loc[idx, "cv_glucose_24h"] = round(s24 / m24, 4) if m24 > 0 else np.nan
 
+            # 4f. MAGE: mean amplitude of glycaemic excursions (24h before meal)
+            if len(window_24h) >= 8:
+                mage = _compute_mage(window_24h["glucose"].values)
+                if not np.isnan(mage):
+                    df.loc[idx, "mage_24h"] = round(mage, 4)
+
+            # 4g. CONGA-2: continuous overall net glycaemic action, 2h lag (24h before meal)
+            conga2 = _compute_lagged_diffs(cgm, window_24h, lag_minutes=120)
+            if not np.isnan(conga2):
+                df.loc[idx, "conga2_24h"] = round(conga2, 4)
+
+            # 4h. MODD: mean of daily differences, 24h lag (needs CGM from t-48h)
+            modd = _compute_lagged_diffs(cgm, window_24h, lag_minutes=1440)
+            if not np.isnan(modd):
+                df.loc[idx, "modd_24h"] = round(modd, 4)
+
             # 4e. Glucose at fixed pre-meal timepoints
             t_minus_15 = t0_utc - pd.Timedelta(minutes=15)
             t_minus_30 = t0_utc - pd.Timedelta(minutes=30)
@@ -483,6 +546,14 @@ def step4_glycaemic_features(df, cgm_cache):
     for c in g_cols:
         pct = 100 * df[c].notna().sum() / len(df) if len(df) > 0 else 0
         print(f"      {c:30s} {pct:5.1f}% non-null")
+
+    print("\n    Variability feature summary:")
+    for c in ["mage_24h", "conga2_24h", "modd_24h"]:
+        valid = df[c].dropna()
+        if len(valid) > 0:
+            print(f"      {c:30s} n={len(valid):>5d}  mean={valid.mean():.2f}")
+        else:
+            print(f"      {c:30s} n=    0  mean=N/A")
 
     return df
 
@@ -784,6 +855,7 @@ def main():
         "past_1h_glucose_mean", "past_1h_glucose_sd", "past_1h_glucose_range",
         "mean_glucose_24h", "sd_glucose_24h", "cv_glucose_24h",
         "glucose_at_t_minus_15", "glucose_at_t_minus_30",
+        "mage_24h", "conga2_24h", "modd_24h",
     ]
 
     dt_cols = [
