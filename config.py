@@ -54,6 +54,7 @@ G_COLS = [
     "baseline_glucose_mmol", "past_4h_glucose_trend",
     "past_1h_glucose_mean", "past_1h_glucose_sd", "past_1h_glucose_range",
     "mean_glucose_24h", "sd_glucose_24h", "cv_glucose_24h",
+    "mage_24h", "conga2_24h", "modd_24h",
     "glucose_at_t_minus_15", "glucose_at_t_minus_30",
 ]
 
