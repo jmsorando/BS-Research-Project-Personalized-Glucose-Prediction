@@ -454,7 +454,7 @@ def step4_glycaemic_features(df, cgm_cache):
               "past_1h_glucose_mean", "past_1h_glucose_sd", "past_1h_glucose_range",
               "mean_glucose_24h", "sd_glucose_24h", "cv_glucose_24h",
               "glucose_at_t_minus_15", "glucose_at_t_minus_30",
-              "mage_24h", "conga1_24h", "modd_24h"]
+              "mage_24h", "conga1_24h", "conga2_24h", "modd_24h"]
     for c in g_cols:
         df[c] = np.nan
 
@@ -528,6 +528,11 @@ def step4_glycaemic_features(df, cgm_cache):
             if not np.isnan(conga1):
                 df.loc[idx, "conga1_24h"] = round(conga1, 4)
 
+            # 4g2. CONGA-2: continuous overall net glycaemic action, 2h lag (24h before meal)
+            conga2 = _compute_lagged_diffs(cgm, window_24h, lag_minutes=120)
+            if not np.isnan(conga2):
+                df.loc[idx, "conga2_24h"] = round(conga2, 4)
+
             # 4h. MODD: mean of daily differences, 24h lag (needs CGM from t-48h)
             modd = _compute_lagged_diffs(cgm, window_24h, lag_minutes=1440)
             if not np.isnan(modd):
@@ -548,7 +553,7 @@ def step4_glycaemic_features(df, cgm_cache):
         print(f"      {c:30s} {pct:5.1f}% non-null")
 
     print("\n    Variability feature summary:")
-    for c in ["mage_24h", "conga1_24h", "modd_24h"]:
+    for c in ["mage_24h", "conga1_24h", "conga2_24h", "modd_24h"]:
         valid = df[c].dropna()
         if len(valid) > 0:
             print(f"      {c:30s} n={len(valid):>5d}  mean={valid.mean():.2f}")
@@ -855,7 +860,7 @@ def main():
         "past_1h_glucose_mean", "past_1h_glucose_sd", "past_1h_glucose_range",
         "mean_glucose_24h", "sd_glucose_24h", "cv_glucose_24h",
         "glucose_at_t_minus_15", "glucose_at_t_minus_30",
-        "mage_24h", "conga1_24h", "modd_24h",
+        "mage_24h", "conga1_24h", "conga2_24h", "modd_24h",
     ]
 
     dt_cols = [
