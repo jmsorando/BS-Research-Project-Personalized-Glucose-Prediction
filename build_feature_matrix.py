@@ -771,6 +771,48 @@ def step7_participant_features(df, all_meals, sex_map):
     return df
 
 
+# ── Step 8: Interaction Features ─────────────────────────────────
+# Group 1 — Meal × Physiology: CHO effect depends on pre-meal glucose state and recent variability
+# Group 2 — Nutrient × Nutrient: fibre, fat, and protein modulate the glycaemic impact of CHO
+# Group 3 — Temporal: circadian insulin sensitivity modulates CHO and glucose-trend effects
+# Group 4 — Variability Context: high glycaemic variability amplifies baseline glucose effects
+def compute_interaction_features(df):
+    """Compute biologically motivated cross-product interaction features."""
+
+    # Group 1 — Meal × Physiology
+    df['cho_x_baseline_glucose']     = df['CHO'] * df['baseline_glucose_mmol']
+    df['cho_x_mage']                 = df['CHO'] * df['mage_24h']
+    df['cho_x_time_since_last_meal'] = df['CHO'] * df['time_since_last_meal_min']
+
+    # Group 2 — Nutrient × Nutrient
+    df['cho_x_fibre']   = df['CHO'] * df['ENGFIB']
+    df['cho_x_fat']     = df['CHO'] * df['FAT']
+    df['cho_x_protein'] = df['CHO'] * df['PROT']
+
+    # Group 3 — Temporal
+    df['cho_x_hour_of_day']          = df['CHO'] * df['hour_of_day']
+    df['glucose_trend_x_hour_of_day'] = df['past_4h_glucose_trend'] * df['hour_of_day']
+
+    # Group 4 — Variability Context
+    df['mage_x_baseline_glucose'] = df['mage_24h'] * df['baseline_glucose_mmol']
+    df['cv_x_hour_of_day']        = df['cv_glucose_24h'] * df['hour_of_day']
+
+    # Verification summary
+    interaction_cols = [
+        'cho_x_baseline_glucose', 'cho_x_mage', 'cho_x_time_since_last_meal',
+        'cho_x_fibre', 'cho_x_fat', 'cho_x_protein',
+        'cho_x_hour_of_day', 'glucose_trend_x_hour_of_day',
+        'mage_x_baseline_glucose', 'cv_x_hour_of_day',
+    ]
+    print(f"\n  [interactions] computed {len(interaction_cols)} interaction features")
+    for col in interaction_cols:
+        n_valid = df[col].notna().sum()
+        mean_val = df[col].mean()
+        print(f"    {col:35s} {n_valid:>5d} non-null  mean={mean_val:.1f}")
+
+    return df
+
+
 # ── Main ─────────────────────────────────────────────────────────
 def main():
     print("=" * 72)
@@ -805,6 +847,7 @@ def main():
     df = step4_glycaemic_features(df, cgm_cache)
     df = step5_diet_temporal(df, all_meals)
     df = step6_derived_ratios(df)
+    df = compute_interaction_features(df)
     df = step7_participant_features(df, all_meals, sex_map)
 
     # ── Assemble output columns ───────────────────────────────
@@ -870,6 +913,13 @@ def main():
         "is_breakfast", "is_lunch", "is_dinner", "is_snack",
     ]
 
+    interaction_cols = [
+        "cho_x_baseline_glucose", "cho_x_mage", "cho_x_time_since_last_meal",
+        "cho_x_fibre", "cho_x_fat", "cho_x_protein",
+        "cho_x_hour_of_day", "glucose_trend_x_hour_of_day",
+        "mage_x_baseline_glucose", "cv_x_hour_of_day",
+    ]
+
     participant_cols = ["sex", "n_total_meals", "n_days_tracked",
                         "mean_daily_kcal", "mean_daily_cho"]
 
@@ -881,8 +931,8 @@ def main():
     all_ordered = []
     seen = set()
     for col in (id_cols + target_cols + quality_cols + dc_nutrient_cols +
-                dc_ratio_cols + g_cols + dt_cols + participant_cols +
-                validation_cols):
+                dc_ratio_cols + g_cols + dt_cols + interaction_cols +
+                participant_cols + validation_cols):
         if col not in seen and col in df.columns:
             all_ordered.append(col)
             seen.add(col)

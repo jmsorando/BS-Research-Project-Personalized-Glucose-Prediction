@@ -69,13 +69,30 @@ P_COLS = [
     "sex", "n_total_meals", "n_days_tracked", "mean_daily_kcal", "mean_daily_cho",
 ]
 
+INTERACTION_COLS = [
+    # Meal × Physiology
+    'cho_x_baseline_glucose',
+    'cho_x_mage',
+    'cho_x_time_since_last_meal',
+    # Nutrient × Nutrient
+    'cho_x_fibre',
+    'cho_x_fat',
+    'cho_x_protein',
+    # Temporal
+    'cho_x_hour_of_day',
+    'glucose_trend_x_hour_of_day',
+    # Variability Context
+    'mage_x_baseline_glucose',
+    'cv_x_hour_of_day',
+]
+
 # Columns that would leak postprandial information — NEVER use as features
 LEAKAGE_COLS = [
     "iAUC_mmol_h", "excursion_rise_mmol", "excursion_peak_mmol",
     "peak_glucose_mmol", "time_to_peak_min", "glucose_at_120min_mmol",
 ]
 
-ALL_FEATURES = DC_RAW + DC_RATIOS + G_COLS + DT_COLS + P_COLS
+ALL_FEATURES = DC_RAW + DC_RATIOS + G_COLS + DT_COLS + P_COLS + INTERACTION_COLS
 
 # ── Baseline XGBoost hyperparameters ─────────────────────────────────────
 BASELINE_PARAMS = dict(
