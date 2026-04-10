@@ -43,7 +43,7 @@ COLOUR = {
 }
 
 # SHAP beeswarm/summary colourmap: coolwarm gives softer journal-friendly poles
-SHAP_CMAP = plt.cm.coolwarm
+SHAP_CMAP = plt.cm.coolwarm  # type: ignore[attr-defined]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -56,14 +56,14 @@ print("=" * 60)
 
 df = pd.read_csv(cfg.FEATURE_MATRIX)
 df = df[df["iauc_status"] == cfg.IAUC_STATUS].reset_index(drop=True)
-df["sex"] = df["sex"].map({"Male": 0, "Female": 1})
+df["sex"] = df["sex"].map({"Male": 0, "Female": 1})  # type: ignore[arg-type]
 
 X = df[cfg.ALL_FEATURES]
 y = df[cfg.TARGET]
-participant_ids = df["participant_id"].values
+participant_ids = df["participant_id"].values  # type: ignore[union-attr]
 
 print(f"  Rows: {len(df):,}  Features: {X.shape[1]}  "
-      f"Participants: {df['participant_id'].nunique()}")
+      f"Participants: {df['participant_id'].nunique()}")  # type: ignore[union-attr]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -122,7 +122,7 @@ if hasattr(expected_value, "__len__"):
 expected_value = float(expected_value)
 
 preds = model.predict(X)
-residuals = y.values - preds
+residuals = y.values - preds  # type: ignore[union-attr]
 
 print(f"  SHAP matrix shape: {shap_vals.shape}")
 print(f"  Expected value (baseline): {expected_value:.2f}")
@@ -149,11 +149,11 @@ feature_groups = [get_feature_group(f) for f in cfg.ALL_FEATURES]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# ANALYSIS 1 — Beeswarm Summary (Top 25)
+# ANALYSIS 1 — Beeswarm Summary (Top 20)
 # ═══════════════════════════════════════════════════════════════════════════
 
 print("\n" + "=" * 60)
-print("ANALYSIS 1 — Beeswarm Summary (Top 25)")
+print("ANALYSIS 1 — Beeswarm Summary (Top 20)")
 print("=" * 60)
 
 plt.figure(figsize=(10, 10))
@@ -164,7 +164,7 @@ p = SHAP_PLOT_DIR / "01_beeswarm_top20.png"
 plt.savefig(p, dpi=150, bbox_inches="tight")
 plt.close()
 print(f"  Saved: {p}")
-print("  Caption: Beeswarm plot showing top 25 features ranked by mean |SHAP|.")
+print("  Caption: Beeswarm plot showing top 20 features ranked by mean |SHAP|.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -276,19 +276,19 @@ for label, idx in meal_cases.items():
     expl = shap.Explanation(
         values=shap_vals[idx],
         base_values=expected_value,
-        data=X.iloc[idx].values,
+        data=X.iloc[idx].values,  # type: ignore[union-attr]
         feature_names=list(cfg.ALL_FEATURES),
     )
     fig = plt.figure(figsize=(10, 8))
     shap.waterfall_plot(expl, max_display=15, show=False)
     plt.title(f"Waterfall — {label}\n"
-              f"actual={y.iloc[idx]:.1f}, pred={preds[idx]:.1f}", fontsize=11)
+              f"actual={y.iloc[idx]:.1f}, pred={preds[idx]:.1f}", fontsize=11)  # type: ignore[union-attr]
     plt.tight_layout()
     fname = f"04_waterfall_{label}.png"
     p = SHAP_PLOT_DIR / fname
     plt.savefig(p, dpi=150, bbox_inches="tight")
     plt.close()
-    print(f"  Saved: {p}  (idx={idx}, actual={y.iloc[idx]:.1f}, pred={preds[idx]:.1f})")
+    print(f"  Saved: {p}  (idx={idx}, actual={y.iloc[idx]:.1f}, pred={preds[idx]:.1f})")  # type: ignore[union-attr]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -343,10 +343,9 @@ print("=" * 60)
 
 # Sample up to 20 meals per participant for speed
 np.random.seed(cfg.RANDOM_SEED)
-sampled_idx = (df.groupby("participant_id")
-                 .apply(lambda g: g.sample(min(len(g), 20), random_state=42),
-                        include_groups=False)
-                 .index.get_level_values(1))
+sampled_idx = (df.groupby("participant_id", group_keys=False)
+                 .apply(lambda g: g.sample(min(len(g), 20), random_state=42))
+                 .index.to_numpy())
 
 shap_sample = shap_vals[sampled_idx]
 pid_sample = participant_ids[sampled_idx]
@@ -385,8 +384,8 @@ ax.hist(within, bins=40, alpha=0.6,
         label=f"Within-participant (n={len(within):,})", color=COLOUR["G"])
 ax.hist(across, bins=40, alpha=0.6,
         label=f"Across-participant (n={len(across):,})", color=COLOUR["Dc"])
-ax.axvline(np.mean(within), color=COLOUR["G"], lw=2, ls="--")
-ax.axvline(np.mean(across), color=COLOUR["Dc"], lw=2, ls="--")
+ax.axvline(float(np.mean(within)), color=COLOUR["G"], lw=2, ls="--")
+ax.axvline(float(np.mean(across)), color=COLOUR["Dc"], lw=2, ls="--")
 ax.set_xlabel("Cosine similarity of SHAP vectors")
 ax.set_ylabel("Count")
 ax.set_title("SHAP Profile Similarity: Within vs Across Participants\n"
@@ -418,6 +417,9 @@ dc_feats = cfg.DC_RAW + cfg.DC_RATIOS
 model_dc = xgb.XGBRegressor(**train_params)
 model_dc.fit(X[dc_feats], y)
 
+from sklearn.metrics import r2_score
+dc_r2 = r2_score(y, model_dc.predict(X[dc_feats]))
+
 explainer_dc = shap.TreeExplainer(model_dc)
 shap_vals_dc = explainer_dc.shap_values(X[dc_feats])
 
@@ -425,7 +427,7 @@ fig, ax = plt.subplots(1, 1, figsize=(9, 7))
 
 plt.sca(ax)
 shap.summary_plot(shap_vals_dc, X[dc_feats], max_display=10, show=False, cmap=SHAP_CMAP)
-ax.set_title("SHAP — Dc-only model (R² ≈ -0.004)", fontsize=11)
+ax.set_title(f"SHAP — Dc-only model (R² ≈ {dc_r2:.3f})", fontsize=11)
 
 plt.tight_layout()
 p = SHAP_PLOT_DIR / "07_dc_only_shap.png"
@@ -447,9 +449,9 @@ fold_top10 = []
 
 for fold, (tr, te) in enumerate(gkf.split(X, y, df["participant_id"])):
     m = xgb.XGBRegressor(**train_params)
-    m.fit(X.iloc[tr], y.iloc[tr])
+    m.fit(X.iloc[tr], y.iloc[tr])  # type: ignore[union-attr]
     exp = shap.TreeExplainer(m)
-    sv = exp.shap_values(X.iloc[te])
+    sv = exp.shap_values(X.iloc[te])  # type: ignore[union-attr]
     top10 = (pd.Series(np.abs(sv).mean(axis=0), index=cfg.ALL_FEATURES)
              .nlargest(10).index.tolist())
     fold_top10.append(top10)
@@ -484,7 +486,7 @@ dc_feats_idx = [cfg.ALL_FEATURES.index(f) for f in dc_all if f in cfg.ALL_FEATUR
 
 fig, axes = plt.subplots(1, 4, figsize=(20, 5), sharey=True)
 for ax, (label, mask) in zip(axes, meal_types.items()):
-    sv_sub = shap_vals[mask.values]
+    sv_sub = shap_vals[mask.values]  # type: ignore[union-attr]
     dc_importance = np.abs(sv_sub[:, dc_feats_idx]).mean(axis=0)
     dc_names = [cfg.ALL_FEATURES[i] for i in dc_feats_idx]
     top_idx = np.argsort(dc_importance)[-10:]
@@ -561,11 +563,11 @@ ranked["rank"] = range(1, len(ranked) + 1)
 
 def get_rank(feat):
     row = ranked[ranked["feature"] == feat]
-    return row["rank"].values[0] if len(row) > 0 else None
+    return row["rank"].values[0] if len(row) > 0 else None  # type: ignore[union-attr]
 
 def get_direction(feat):
     row = ranked[ranked["feature"] == feat]
-    return row["mean_shap"].values[0] if len(row) > 0 else None
+    return row["mean_shap"].values[0] if len(row) > 0 else None  # type: ignore[union-attr]
 
 n_features = len(cfg.ALL_FEATURES)
 bottom_20_threshold = int(n_features * 0.8)
@@ -588,23 +590,7 @@ checks.append(("CHO SHAP direction",
                "Positive",
                "OK" if ok else "RED FLAG: not positive"))
 
-# 3. fat_cho_ratio direction
-d = get_direction("fat_cho_ratio")
-ok = d is not None and d < 0
-checks.append(("fat_cho_ratio direction",
-               f"{d:+.4f}" if d is not None else "N/A",
-               "Negative",
-               "OK" if ok else "RED FLAG: not negative"))
-
-# 4. fibre_cho_ratio direction
-d = get_direction("fibre_cho_ratio")
-ok = d is not None and d < 0
-checks.append(("fibre_cho_ratio direction",
-               f"{d:+.4f}" if d is not None else "N/A",
-               "Negative",
-               "OK" if ok else "RED FLAG: not negative"))
-
-# 5. is_breakfast direction
+# 3. is_breakfast direction (renumbered after removing pruned-feature checks)
 d = get_direction("is_breakfast")
 ok = d is not None and d > 0
 checks.append(("is_breakfast SHAP",
@@ -612,7 +598,7 @@ checks.append(("is_breakfast SHAP",
                "Positive",
                "OK" if ok else "RED FLAG: not positive"))
 
-# 6. Participant leakage check
+# 4. Participant leakage check
 r_meals = get_rank("n_total_meals")
 r_days = get_rank("n_days_tracked")
 leakage_flag = False
@@ -625,13 +611,13 @@ checks.append(("n_total_meals / n_days_tracked rank",
                f"Bottom 20% (rank > {bottom_20_threshold})",
                "OK" if not leakage_flag else "RED FLAG: participant leakage suspected"))
 
-# 7. Within vs across SHAP similarity gap
+# 5. Within vs across SHAP similarity gap
 checks.append(("Within vs across SHAP gap",
                f"{gap:.3f}",
                "< 0.05",
                "OK" if gap < 0.05 else ("WARNING" if gap < 0.15 else "RED FLAG: memorisation")))
 
-# 8. Feature stability
+# 6. Feature stability
 baseline_stability = None
 cho_stability = None
 for _, row in stable_df.iterrows():
