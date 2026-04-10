@@ -1,0 +1,48 @@
+cluster,feature,VIF,mean_abs_shap,global_shap_rank,cluster_shap_rank,decision,reason
+carb_fractions,SUCR,8.2,3.1747,9,1,KEEP,VIF=8.2 < 10 -- acceptable collinearity
+carb_fractions,CHO,33.4,2.2606,20,2,KEEP,"VIF=33.4 -- moderate, acceptable"
+carb_fractions,STAR,16.5,2.2525,22,3,KEEP,"VIF=16.5 -- moderate, acceptable"
+carb_fractions,MALT,1.8,2.1556,23,4,KEEP,VIF=1.8 < 10 -- acceptable collinearity
+carb_fractions,TOTSUG,18.4,1.8984,27,5,KEEP,"VIF=18.4 -- moderate, acceptable"
+carb_fractions,GLUC,8.6,1.861,30,6,KEEP,VIF=8.6 < 10 -- acceptable collinearity
+carb_fractions,FRUCT,9.2,1.8529,31,7,KEEP,VIF=9.2 < 10 -- acceptable collinearity
+carb_fractions,LACT,2.0,1.6356,34,8,KEEP,VIF=2.0 < 10 -- acceptable collinearity
+carb_fractions,GALACT,1.3,1.3343,38,9,KEEP,VIF=1.3 < 10 -- acceptable collinearity
+carb_fractions,OLIGO,1.1,1.1956,40,10,KEEP,VIF=1.1 < 10 -- acceptable collinearity
+carb_fractions,ADDED_SUGAR,4.9,1.1255,41,11,KEEP,VIF=4.9 < 10 -- acceptable collinearity
+carb_fractions,FREE_SUGAR,6.1,1.0648,42,12,KEEP,VIF=6.1 < 10 -- acceptable collinearity
+energy_proxies,KCALS,13236.2,1.8785,29,1,KEEP,"VIF=13236.2 >= 50 but top half of cluster by SHAP (rank #1/2) -- keep, note in paper"
+energy_proxies,KJ,13236.2,1.2853,39,2,DROP,VIF=13236.2 >= 100 and not top-SHAP in cluster (cluster rank #2/2)
+macronutrients,PROT,4.0,3.0584,11,1,KEEP,VIF=4.0 < 10 -- acceptable collinearity
+macronutrients,WATER,1.9,3.0168,14,2,KEEP,VIF=1.9 < 10 -- acceptable collinearity
+macronutrients,FAT,3.6,1.9086,26,3,KEEP,VIF=3.6 < 10 -- acceptable collinearity
+macronutrients,ALCO,1.4,0.0711,47,4,KEEP,VIF=1.4 < 10 -- acceptable collinearity
+fibre,AOACFIB,8.3,3.0481,13,1,KEEP,VIF=8.3 < 10 -- acceptable collinearity
+fibre,ENGFIB,8.3,2.3141,19,2,KEEP,VIF=8.3 < 10 -- acceptable collinearity
+fat_subtypes,POLYFACc,14.8,3.0545,12,1,KEEP,"VIF=14.8 -- moderate, acceptable"
+fat_subtypes,MONOFACc,3.5,2.8037,16,2,KEEP,VIF=3.5 < 10 -- acceptable collinearity
+fat_subtypes,SATFAC,2.6,1.9789,25,3,KEEP,VIF=2.6 < 10 -- acceptable collinearity
+fat_subtypes,FACTRANS,2.0,1.8941,28,4,KEEP,VIF=2.0 < 10 -- acceptable collinearity
+fat_subtypes,TOTn3PFAC,2.2,1.7376,33,5,KEEP,VIF=2.2 < 10 -- acceptable collinearity
+fat_subtypes,TOTn6PFAC,9.2,1.6191,35,6,KEEP,VIF=9.2 < 10 -- acceptable collinearity
+micronutrients,ZN,2.7,3.5222,5,1,KEEP,VIF=2.7 < 10 -- acceptable collinearity
+micronutrients,SE,2.4,3.3023,6,2,KEEP,VIF=2.4 < 10 -- acceptable collinearity
+micronutrients,FE,3.0,3.2112,8,3,KEEP,VIF=3.0 < 10 -- acceptable collinearity
+micronutrients,MG,6.3,3.1482,10,4,KEEP,VIF=6.3 < 10 -- acceptable collinearity
+micronutrients,MN,3.7,2.3764,18,5,KEEP,VIF=3.7 < 10 -- acceptable collinearity
+micronutrients,VITD,1.5,1.3361,37,6,KEEP,VIF=1.5 < 10 -- acceptable collinearity
+micronutrients,CAFF,1.1,0.8225,45,7,KEEP,VIF=1.1 < 10 -- acceptable collinearity
+food_groups,totalFruit,1.0,0.9586,43,1,KEEP,VIF=1.0 < 10 -- acceptable collinearity
+food_groups,totalVeg,1.0,0.9507,44,2,KEEP,VIF=1.0 < 10 -- acceptable collinearity
+derived_ratios,glycaemic_brake,987968078.0,6.1162,1,1,KEEP,VIF=987968078.0 but global SHAP rank=#1 -- too important to drop
+derived_ratios,protein_cho_ratio,501620959.8,4.7678,2,2,KEEP,VIF=501620959.8 but global SHAP rank=#2 -- too important to drop
+derived_ratios,sugar_fraction,4.8,4.2809,3,3,KEEP,VIF=4.8 < 10 -- acceptable collinearity
+derived_ratios,fat_sugar_ratio,6.0,3.6543,4,4,KEEP,VIF=6.0 < 10 -- acceptable collinearity
+derived_ratios,fat_cho_ratio,75555080.4,3.2177,7,5,DROP,VIF=75555080.4 >= 100 and not top-SHAP in cluster (cluster rank #5/12)
+derived_ratios,intrinsic_sugar,4.0,2.8802,15,6,KEEP,VIF=4.0 < 10 -- acceptable collinearity
+derived_ratios,fibre_cho_ratio,6688540.2,2.4787,17,7,DROP,VIF=6688540.2 >= 100 and not top-SHAP in cluster (cluster rank #7/12)
+derived_ratios,rapid_glucose_equiv,3.2,2.2547,21,8,KEEP,VIF=3.2 < 10 -- acceptable collinearity
+derived_ratios,starch_fraction,1.9,2.0056,24,9,KEEP,VIF=1.9 < 10 -- acceptable collinearity
+derived_ratios,protein_sugar_ratio,6.3,1.8253,32,10,KEEP,VIF=6.3 < 10 -- acceptable collinearity
+derived_ratios,n6_n3_ratio,1.1,1.487,36,11,KEEP,VIF=1.1 < 10 -- acceptable collinearity
+derived_ratios,free_sugar_fraction,4.0,0.8084,46,12,KEEP,VIF=4.0 < 10 -- acceptable collinearity
