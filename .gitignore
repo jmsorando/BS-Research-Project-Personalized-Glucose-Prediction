@@ -219,5 +219,3 @@ output/models/
 output/plots/
 *.ubj
 .DS_Store
-training_outputs/models/
-training_outputs/plots/
