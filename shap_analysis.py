@@ -407,11 +407,11 @@ print(f"  Gap (within - across): {gap:.3f}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# ANALYSIS 7 — Dc-Only Model vs Full Model SHAP
+# ANALYSIS 7 — Dc-Only Model SHAP
 # ═══════════════════════════════════════════════════════════════════════════
 
 print("\n" + "=" * 60)
-print("ANALYSIS 7 — Dc-Only vs Full Model SHAP")
+print("ANALYSIS 7 — Dc-Only Model SHAP")
 print("=" * 60)
 
 dc_feats = cfg.DC_RAW + cfg.DC_RATIOS
@@ -421,18 +421,14 @@ model_dc.fit(X[dc_feats], y)
 explainer_dc = shap.TreeExplainer(model_dc)
 shap_vals_dc = explainer_dc.shap_values(X[dc_feats])
 
-fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+fig, ax = plt.subplots(1, 1, figsize=(9, 7))
 
-plt.sca(axes[0])
+plt.sca(ax)
 shap.summary_plot(shap_vals_dc, X[dc_feats], max_display=10, show=False, cmap=SHAP_CMAP)
-axes[0].set_title("SHAP — Dc-only model (R² ≈ -0.004)", fontsize=11)
-
-plt.sca(axes[1])
-shap.summary_plot(shap_vals, X, max_display=10, show=False, cmap=SHAP_CMAP)
-axes[1].set_title("SHAP — Full model (R² ≈ 0.149)", fontsize=11)
+ax.set_title("SHAP — Dc-only model (R² ≈ -0.004)", fontsize=11)
 
 plt.tight_layout()
-p = SHAP_PLOT_DIR / "07_dc_only_vs_full_shap.png"
+p = SHAP_PLOT_DIR / "07_dc_only_shap.png"
 plt.savefig(p, dpi=150, bbox_inches="tight")
 plt.close()
 print(f"  Saved: {p}")
