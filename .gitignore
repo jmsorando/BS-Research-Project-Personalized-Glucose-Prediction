@@ -210,6 +210,9 @@ __marimo__/
 source/
 .claude/
 
+# Docs (internal reports, not for GitHub)
+docs/
+
 # Added by pipeline audit cleanup
 *.pyc
 output/models/
