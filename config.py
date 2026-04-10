@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parent
 FEATURE_MATRIX = REPO_ROOT / "output" / "feature_matrix.csv"
 
 # ── Outputs (created at runtime if missing) ───────────────────────────────
-OUTPUT_DIR  = REPO_ROOT / "outputs"
+OUTPUT_DIR  = REPO_ROOT / "training_outputs"
 MODEL_DIR   = OUTPUT_DIR / "models"
 PLOT_DIR    = OUTPUT_DIR / "plots"
 RESULTS_DIR = OUTPUT_DIR / "results"
