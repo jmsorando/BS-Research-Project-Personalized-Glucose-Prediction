@@ -1,0 +1,48 @@
+cluster,feature,VIF,verdict
+carb_fractions,CHO,33.39,moderate -> monitor
+carb_fractions,TOTSUG,18.41,moderate -> monitor
+carb_fractions,STAR,16.47,moderate -> monitor
+carb_fractions,FRUCT,9.25,acceptable
+carb_fractions,GLUC,8.57,acceptable
+carb_fractions,SUCR,8.15,acceptable
+carb_fractions,FREE_SUGAR,6.11,acceptable
+carb_fractions,ADDED_SUGAR,4.94,acceptable
+carb_fractions,LACT,1.98,acceptable
+carb_fractions,MALT,1.75,acceptable
+carb_fractions,GALACT,1.26,acceptable
+carb_fractions,OLIGO,1.15,acceptable
+energy_proxies,KCALS,13236.21,near-duplicate -> DROP candidate
+energy_proxies,KJ,13236.21,near-duplicate -> DROP candidate
+macronutrients,PROT,3.98,acceptable
+macronutrients,FAT,3.6,acceptable
+macronutrients,WATER,1.92,acceptable
+macronutrients,ALCO,1.35,acceptable
+fibre,AOACFIB,8.29,acceptable
+fibre,ENGFIB,8.29,acceptable
+fat_subtypes,POLYFACc,14.78,moderate -> monitor
+fat_subtypes,TOTn6PFAC,9.22,acceptable
+fat_subtypes,MONOFACc,3.51,acceptable
+fat_subtypes,SATFAC,2.61,acceptable
+fat_subtypes,TOTn3PFAC,2.24,acceptable
+fat_subtypes,FACTRANS,2.01,acceptable
+micronutrients,MG,6.27,acceptable
+micronutrients,MN,3.72,acceptable
+micronutrients,FE,2.95,acceptable
+micronutrients,ZN,2.74,acceptable
+micronutrients,SE,2.42,acceptable
+micronutrients,VITD,1.51,acceptable
+micronutrients,CAFF,1.15,acceptable
+food_groups,totalVeg,1.01,acceptable
+food_groups,totalFruit,1.01,acceptable
+derived_ratios,glycaemic_brake,987968078.02,near-duplicate -> DROP candidate
+derived_ratios,protein_cho_ratio,501620959.75,near-duplicate -> DROP candidate
+derived_ratios,fat_cho_ratio,75555080.42,near-duplicate -> DROP candidate
+derived_ratios,fibre_cho_ratio,6688540.19,near-duplicate -> DROP candidate
+derived_ratios,protein_sugar_ratio,6.34,acceptable
+derived_ratios,fat_sugar_ratio,6.01,acceptable
+derived_ratios,sugar_fraction,4.78,acceptable
+derived_ratios,intrinsic_sugar,4.0,acceptable
+derived_ratios,free_sugar_fraction,3.99,acceptable
+derived_ratios,rapid_glucose_equiv,3.18,acceptable
+derived_ratios,starch_fraction,1.88,acceptable
+derived_ratios,n6_n3_ratio,1.05,acceptable
