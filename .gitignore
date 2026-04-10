@@ -209,3 +209,12 @@ __marimo__/
 # Project-specific: participant data (sensitive)
 source/
 .claude/
+
+# Added by pipeline audit cleanup
+*.pyc
+output/models/
+output/plots/
+*.ubj
+.DS_Store
+outputs/models/
+outputs/plots/

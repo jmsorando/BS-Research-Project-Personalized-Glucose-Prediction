@@ -1,0 +1,14 @@
+feature,folds_in_top10
+baseline_glucose_mmol,5
+mean_glucose_24h,5
+past_1h_glucose_range,5
+past_4h_glucose_trend,5
+n_total_meals,5
+past_1h_glucose_sd,5
+mage_24h,4
+glucose_trend_x_hour_of_day,4
+conga2_24h,4
+glycaemic_brake,3
+PROT,2
+mean_daily_kcal,2
+protein_cho_ratio,1

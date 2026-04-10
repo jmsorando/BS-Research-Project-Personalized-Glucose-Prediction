@@ -221,14 +221,16 @@ def ablation(X_full, y, groups, params: dict) -> pd.DataFrame:
     import matplotlib.pyplot as plt
 
     feature_sets = {
-        "Dc only":      cfg.DC_RAW + cfg.DC_RATIOS,
-        "G only":       cfg.G_COLS,
-        "Dt only":      cfg.DT_COLS,
-        "Dc + G":       cfg.DC_RAW + cfg.DC_RATIOS + cfg.G_COLS,
-        "Dc + Dt":      cfg.DC_RAW + cfg.DC_RATIOS + cfg.DT_COLS,
-        "G + Dt":       cfg.G_COLS + cfg.DT_COLS,
-        "Dc + G + Dt":  cfg.DC_RAW + cfg.DC_RATIOS + cfg.G_COLS + cfg.DT_COLS,
-        "All":          cfg.ALL_FEATURES,
+        "Dc only":           cfg.DC_RAW + cfg.DC_RATIOS,
+        "G only":            cfg.G_COLS,
+        "Dt only":           cfg.DT_COLS,
+        "Dc + G":            cfg.DC_RAW + cfg.DC_RATIOS + cfg.G_COLS,
+        "Dc + Dt":           cfg.DC_RAW + cfg.DC_RATIOS + cfg.DT_COLS,
+        "G + Dt":            cfg.G_COLS + cfg.DT_COLS,
+        "Dc + G + Dt":       cfg.DC_RAW + cfg.DC_RATIOS + cfg.G_COLS + cfg.DT_COLS,
+        "Interactions only": cfg.INTERACTION_COLS,
+        "G + Interactions":  cfg.G_COLS + cfg.INTERACTION_COLS,
+        "All + Interactions": cfg.ALL_FEATURES,
     }
 
     gkf = GroupKFold(n_splits=cfg.N_FOLDS)
