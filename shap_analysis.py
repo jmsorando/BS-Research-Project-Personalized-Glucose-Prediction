@@ -8,8 +8,21 @@ Run from repo root:
     python shap_analysis.py
 """
 
-import sys
+import sys, io, unittest.mock
 from pathlib import Path
+
+# Fix cp1252 encoding on Windows
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+# Block numba before shap loads it — its DLL is blocked by Windows App Control
+for _mod in ["numba", "numba.core", "numba.core.decorators",
+             "numba.stencils", "numba.stencils.stencil",
+             "numba.core.ir_utils", "numba.core.extending",
+             "numba.core.pythonapi", "numba.typed"]:
+    if _mod not in sys.modules:
+        sys.modules[_mod] = unittest.mock.MagicMock()
 
 import matplotlib
 matplotlib.use("Agg")

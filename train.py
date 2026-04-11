@@ -21,6 +21,11 @@ import xgboost as xgb
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import GroupKFold
 
+import sys, io
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
 # ── Allow running as script or imported as module ─────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config as cfg
@@ -176,27 +181,43 @@ def train_final(X, y, params: dict) -> xgb.XGBRegressor:
 
 def run_shap(model, X):
     """Compute and save SHAP summary and dependence plots."""
-    import shap
+    import sys, unittest.mock
+
+    # Block numba before shap loads it — its DLL is blocked by Windows App Control
+    for mod in ["numba", "numba.core", "numba.core.decorators",
+                "numba.stencils", "numba.stencils.stencil",
+                "numba.core.ir_utils", "numba.core.extending",
+                "numba.core.pythonapi", "numba.typed"]:
+        if mod not in sys.modules:
+            sys.modules[mod] = unittest.mock.MagicMock()
+
+    try:
+        import shap
+    except Exception as e:
+        print(f"[shap]  SKIPPED — import failed: {e}")
+        return None
+
+    import matplotlib
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
 
-    print("[shap]  computing SHAP values …")
-    explainer  = shap.TreeExplainer(model)
-    shap_vals  = explainer.shap_values(X)
+    print("[shap]  computing SHAP values ...")
+    explainer = shap.TreeExplainer(model)
+    shap_vals = explainer.shap_values(X)
 
-    # Save raw SHAP values
     shap_df = pd.DataFrame(shap_vals, columns=X.columns)
     shap_df.to_csv(cfg.RESULTS_DIR / "shap_values.csv", index=False)
 
-    # Summary plot
     fig, ax = plt.subplots(figsize=(10, 8))
     shap.summary_plot(shap_vals, X, max_display=20, show=False)
     plt.tight_layout()
     p = cfg.PLOT_DIR / "shap_summary.png"
     plt.savefig(p, dpi=150, bbox_inches="tight")
     plt.close()
-    print(f"[shap]  saved → {p}")
+    print(f"[shap]  saved -> {p}")
 
-    # Dependence plots for top 4 features by mean |SHAP|
     mean_abs = pd.Series(np.abs(shap_vals).mean(axis=0), index=X.columns)
     top4 = mean_abs.nlargest(4).index.tolist()
 
@@ -207,7 +228,7 @@ def run_shap(model, X):
     p = cfg.PLOT_DIR / "shap_dependence_top4.png"
     plt.savefig(p, dpi=150, bbox_inches="tight")
     plt.close()
-    print(f"[shap]  saved → {p}")
+    print(f"[shap]  saved -> {p}")
 
     return shap_vals
 
@@ -256,7 +277,6 @@ def ablation(X_full, y, groups, params: dict) -> pd.DataFrame:
               f"MAE={row['MAE_mean']:.1f}")
 
     results = pd.DataFrame(rows)
-    results.to_csv(cfg.RESULTS_DIR / "ablation.csv", index=False)
 
     # Bar chart
     fig, ax = plt.subplots(figsize=(9, 5))
@@ -299,12 +319,21 @@ def main():
     data_path = Path(args.data) if args.data else cfg.FEATURE_MATRIX
     X, y, groups = load_data(data_path)
 
+    all_rows = []
+
     # ── Step 1: Baseline CV ──────────────────────────────────────────────
     print("\n" + "═"*60)
     print("BASELINE CROSS-VALIDATION")
     print("═"*60)
     baseline_results = cross_validate(X, y, groups, cfg.BASELINE_PARAMS, label="baseline")
-    baseline_results.to_csv(cfg.RESULTS_DIR / "baseline_cv.csv", index=False)
+    all_rows.append({
+        "label":      "baseline",
+        "n_features": X.shape[1],
+        "R2_mean":    baseline_results.R2.mean(),
+        "R2_std":     baseline_results.R2.std(),
+        "MAE_mean":   baseline_results.MAE.mean(),
+        "MAE_std":    baseline_results.MAE.std(),
+    })
 
     active_params = cfg.BASELINE_PARAMS
 
@@ -318,7 +347,14 @@ def main():
         print("\nTUNED MODEL CV")
         print("─"*60)
         tuned_results = cross_validate(X, y, groups, best_params, label="tuned")
-        tuned_results.to_csv(cfg.RESULTS_DIR / "tuned_cv.csv", index=False)
+        all_rows.append({
+            "label":      "tuned",
+            "n_features": X.shape[1],
+            "R2_mean":    tuned_results.R2.mean(),
+            "R2_std":     tuned_results.R2.std(),
+            "MAE_mean":   tuned_results.MAE.mean(),
+            "MAE_std":    tuned_results.MAE.std(),
+        })
         active_params = best_params
 
     # ── Step 3: Final model ──────────────────────────────────────────────
@@ -339,7 +375,12 @@ def main():
         print("\n" + "═"*60)
         print("ABLATION STUDY")
         print("═"*60)
-        ablation(X, y, groups, active_params)
+        ablation_results = ablation(X, y, groups, active_params)
+        for _, row in ablation_results.iterrows():
+            all_rows.append(row.to_dict())
+
+    # ── Save single results table ────────────────────────────────────────
+    pd.DataFrame(all_rows).to_csv(cfg.RESULTS_DIR / "results.csv", index=False)
 
     print("\n✓ Pipeline complete. Outputs in:", cfg.OUTPUT_DIR)
 
