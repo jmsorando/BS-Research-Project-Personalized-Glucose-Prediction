@@ -430,17 +430,14 @@ dc_feats = cfg.DC_RAW + cfg.DC_RATIOS
 model_dc = xgb.XGBRegressor(**train_params)
 model_dc.fit(X[dc_feats], y)
 
-from sklearn.metrics import r2_score
-dc_r2 = r2_score(y, model_dc.predict(X[dc_feats]))
-
 explainer_dc = shap.TreeExplainer(model_dc)
 shap_vals_dc = explainer_dc.shap_values(X[dc_feats])
 
-fig, ax = plt.subplots(1, 1, figsize=(9, 7))
+fig, ax = plt.subplots(1, 1, figsize=(9, 12))
 
 plt.sca(ax)
-shap.summary_plot(shap_vals_dc, X[dc_feats], max_display=10, show=False, cmap=SHAP_CMAP)
-ax.set_title(f"SHAP — Dc-only model (R² ≈ {dc_r2:.3f})", fontsize=11)
+shap.summary_plot(shap_vals_dc, X[dc_feats], max_display=25, show=False, cmap=SHAP_CMAP)
+ax.set_title("SHAP — Dc-only model", fontsize=11)
 
 plt.tight_layout()
 p = SHAP_PLOT_DIR / "07_dc_only_shap.png"
