@@ -1,0 +1,13 @@
+{
+  "n_estimators": 978,
+  "max_depth": 4,
+  "learning_rate": 0.01677298747162751,
+  "subsample": 0.7091230595064771,
+  "colsample_bytree": 0.9075718693359677,
+  "min_child_weight": 12,
+  "reg_alpha": 0.012684252978851576,
+  "reg_lambda": 4.195654008490881,
+  "tree_method": "hist",
+  "random_state": 42,
+  "early_stopping_rounds": 50
+}
