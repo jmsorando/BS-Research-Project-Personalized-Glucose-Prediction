@@ -204,7 +204,7 @@ colours = [COLOUR.get(k.split(" ")[0], "#888") for k in gi.index]
 
 fig, ax = plt.subplots(figsize=(8, 4))
 ax.barh(gi.index, gi.values, color=colours)
-ax.set_xlabel("Sum of mean |SHAP| (mmol·min)")
+ax.set_xlabel("Sum of mean |SHAP| (mmol·min/L)")
 ax.set_title("Feature Group Importance — Sum of Mean |SHAP|")
 for i, (name, val) in enumerate(gi.items()):
     ax.text(val + gi.max() * 0.01, i, f"{val:.2f}", va="center", fontsize=9)
@@ -502,7 +502,7 @@ for ax, (label, mask) in zip(axes, meal_types.items()):
     top_idx = np.argsort(dc_importance)[-10:]
     ax.barh([dc_names[i] for i in top_idx], dc_importance[top_idx], color=COLOUR["Dc"])
     ax.set_title(f"{label}\n(n={mask.sum()})")
-    ax.set_xlabel("Mean |SHAP|")
+    ax.set_xlabel("Mean |SHAP| (mmol·min/L)")
 axes[0].set_ylabel("Dc features")
 plt.suptitle("Diet Composition SHAP Importance by Meal Type", fontsize=13)
 plt.tight_layout()
