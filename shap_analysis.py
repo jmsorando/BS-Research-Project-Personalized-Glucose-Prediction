@@ -469,7 +469,7 @@ for fold, (tr, te) in enumerate(gkf.split(X, y, df["participant_id"])):
 
 counter = Counter(feat for top in fold_top10 for feat in top)
 stable_df = pd.DataFrame(counter.most_common(20), columns=["feature", "folds_in_top10"])
-print("\n  Feature stability across folds (max=5):")
+print("\n  Feature stability across folds (max=10):")
 print(stable_df.to_string(index=False))
 stable_csv = cfg.RESULTS_DIR / "shap_fold_stability.csv"
 stable_df.to_csv(stable_csv, index=False)
@@ -641,14 +641,14 @@ if cho_stability is None:
     cho_stability = 0
 
 checks.append(("baseline_glucose_mmol stability",
-               f"{baseline_stability}/5 folds",
-               "5/5",
-               "OK" if baseline_stability == 5 else "WARNING: not stable across folds"))
+               f"{baseline_stability}/10 folds",
+               "10/10",
+               "OK" if baseline_stability == 10 else "WARNING: not stable across folds"))
 
 checks.append(("CHO stability",
-               f"{cho_stability}/5 folds",
-               ">= 3/5",
-               "OK" if cho_stability >= 3 else "WARNING: CHO unstable"))
+               f"{cho_stability}/10 folds",
+               ">= 6/10",
+               "OK" if cho_stability >= 6 else "WARNING: CHO unstable"))
 
 print()
 for check_name, observed, expected, verdict in checks:

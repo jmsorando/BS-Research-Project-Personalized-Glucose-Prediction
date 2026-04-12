@@ -29,7 +29,7 @@ for d in [MODEL_DIR, PLOT_DIR, RESULTS_DIR]:
 TARGET      = "iAUC_mmol_min"
 IAUC_STATUS = "ok"
 RANDOM_SEED = 42
-N_FOLDS     = 5
+N_FOLDS     = 10
 
 # ── Feature groups ────────────────────────────────────────────────────────
 DC_RAW = [

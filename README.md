@@ -101,7 +101,7 @@ pip install -r requirements.txt
 Ensure `output/feature_matrix.csv` is present (see [Data Availability](#data-availability)), then run:
 
 ```bash
-# Baseline 5-fold CV only (~2 min)
+# Baseline 10-fold CV only (~4 min)
 python train.py
 
 # Baseline + Optuna hyperparameter tuning (~20–40 min)
@@ -113,7 +113,7 @@ python train.py --shap
 # Baseline + feature-group ablation study
 python train.py --ablation
 
-# Full pipeline: tune + SHAP + ablation (~45–60 min)
+# Full pipeline: tune + SHAP + ablation (~90–120 min)
 python train.py --all
 ```
 
@@ -163,7 +163,7 @@ Feature lists are defined in `config.py` — the single source of truth for all 
 | Setting | Value |
 |---------|-------|
 | Algorithm | XGBoost regressor (`xgboost.XGBRegressor`) |
-| Validation | 5-fold **GroupKFold** (split by `participant_id` — no data leakage across participants) |
+| Validation | 10-fold **GroupKFold** (split by `participant_id` — no data leakage across participants) |
 | Metrics | MAE, RMSE, R² |
 | Row filter | `iauc_status == "ok"` → ~2,215 usable rows from 2,228 total |
 | Encoding | `sex`: Male → 0, Female → 1 (only manual encoding; XGBoost handles NaN natively) |
@@ -174,17 +174,17 @@ Feature lists are defined in `config.py` — the single source of truth for all 
 
 | Flag | What it does | Approx. time |
 |------|-------------|--------------|
-| *(none)* | Baseline 5-fold CV + train final model | ~2 min |
-| `--tune` | + Optuna hyperparameter optimisation (100 trials) | ~20–40 min |
+| *(none)* | Baseline 10-fold CV + train final model | ~4 min |
+| `--tune` | + Optuna hyperparameter optimisation (100 trials) | ~40–80 min |
 | `--shap` | + SHAP summary and top-4 dependence plots | ~5 min |
 | `--ablation` | + Feature-group ablation study (10 subsets) | ~15 min |
-| `--all` | All of the above | ~45–60 min |
+| `--all` | All of the above | ~90–120 min |
 | `--data PATH` | Override the default `feature_matrix.csv` path | — |
 
 ### Pipeline Steps
 
 1. **Load & filter** — read `feature_matrix.csv`, keep rows where `iauc_status == "ok"`, encode `sex`
-2. **Baseline CV** — 5-fold GroupKFold with `config.BASELINE_PARAMS`
+2. **Baseline CV** — 10-fold GroupKFold with `config.BASELINE_PARAMS`
 3. **Tuning** *(optional)* — Optuna Bayesian search, save best params to `best_params.json`
 4. **Final model** — retrain on all data with the active params, save to `final_model.ubj`
 5. **SHAP** *(optional)* — TreeExplainer values, beeswarm + dependence plots

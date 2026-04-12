@@ -211,7 +211,7 @@ def run_shap(model, X):
     shap_df.to_csv(cfg.RESULTS_DIR / "shap_values.csv", index=False)
 
     fig, ax = plt.subplots(figsize=(10, 8))
-    shap.summary_plot(shap_vals, X, max_display=20, show=False)
+    shap.summary_plot(shap_vals, X, max_display=20, show=False, cmap=plt.cm.coolwarm)
     plt.tight_layout()
     p = cfg.PLOT_DIR / "shap_summary.png"
     plt.savefig(p, dpi=150, bbox_inches="tight")
@@ -284,7 +284,7 @@ def ablation(X_full, y, groups, params: dict) -> pd.DataFrame:
     ax.barh(results.label, results.R2_mean, xerr=results.R2_std,
             color=colours, capsize=3)
     ax.axvline(0, color="black", lw=0.8)
-    ax.set_xlabel("R² (5-fold GroupKFold CV)")
+    ax.set_xlabel("R² (10-fold GroupKFold CV)")
     ax.set_title("Ablation Study — Feature Group Contributions")
     for i, row in results.iterrows():
         ax.text(max(row.R2_mean, 0) + 0.005, i, f"{row.R2_mean:+.3f}", va="center", fontsize=9)
