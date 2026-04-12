@@ -1,363 +1,239 @@
-# CGM-First Meal Time Re-Alignment & Feature Matrix Pipeline
+# Personalised Glucose Prediction — iAUC XGBoost Pipeline
 
-A three-stage Python pipeline that (1) aligns self-reported food diary meal times with continuous glucose monitoring (CGM) data, (2) produces a realigned food diary, and (3) builds an XGBoost-ready feature matrix with iAUC targets for postprandial glucose prediction.
-
----
-
-## Philosophy
-
-**The CGM is ground truth for WHEN eating happened. The food diary tells us WHAT was eaten. The pipeline assigns WHAT to WHEN.**
-
-We detect eating events from glucose excursions first, then assign food diary entries to those events. The CGM drives the timeline; the diary provides nutritional content.
+Predict postprandial glycaemic response (PPGR) for real-world meals using XGBoost, with the target variable **iAUC** (incremental Area Under the Curve, mmol·min/L) — the glucose area above the pre-meal baseline over a 2-hour window after eating.
 
 ---
 
-## Data Quality Landscape
+## Table of Contents
 
-Analysis of the full dataset (993 participant-days, 105 participant-IDs) reveals four scenarios:
-
-| Scenario | Frequency | Description |
-|---|---|---|
-| **24h + real-time** | ~71% | Logged throughout the day in 24h format. Times approximately correct. |
-| **24h + batch** | ~24% | Logged entire day in 1-2 sessions. Ordering usually correct, absolute times may be off. |
-| **12h + real-time** | ~5% | Logged throughout the day in 12h format without AM/PM. Times ambiguous. |
-| **12h + batch** | ~1% | Worst case: batch-logged AND 12h ambiguity. |
-
-9 out of 105 participants use 12h format. 237 out of 993 participant-days are batch-entry days. The pipeline handles all four scenarios.
+- [Background](#background)
+- [Repository Structure](#repository-structure)
+- [Quick Start](#quick-start)
+- [Feature Groups](#feature-groups)
+- [Training Pipeline](#training-pipeline)
+- [Key Results](#key-results)
+- [Data Availability](#data-availability)
+- [Reference](#reference)
+- [Further Reading](#further-reading)
 
 ---
 
-## Pipeline Overview
+## Background
 
-The pipeline runs in three stages, each a separate script:
+Postprandial glycaemic response varies dramatically between individuals eating identical meals. This project builds a machine-learning pipeline to predict PPGR from continuous glucose monitor (CGM) data linked to self-reported food diaries (MyFood24) across 68 participants and ~2,215 meal events.
 
-```
-Stage 1                          Stage 2                          Stage 3
-cgm_meal_realignment.py    -->   generate_realigned_source.py --> build_feature_matrix.py
+The upstream pipeline inverts the conventional approach: CGM traces are used to detect glucose excursions first, then food diary entries are matched to those excursions. This avoids reliance on self-reported meal times, which are unreliable. The nadir of each excursion (local minimum just before the glucose spike) serves as the iAUC baseline G₀, validated against Singh et al. (2025).
 
-Inputs:                          Inputs:                          Inputs:
-  patient_extract1602.csv          patient_extract1602.csv          corrected_meal_times_ALL.csv
-  MyFood24 ID Matched.csv         corrected_meal_times_ALL.csv     patient_extract1602_realigned.csv
-  CGM_*.csv files                                                   CGM_*.csv files
-                                                                    patient_extract1602.csv (sex)
-Outputs:                         Output:                          Output:
-  corrected_meal_times_ALL.csv     patient_extract1602_realigned    feature_matrix.csv
-  processing_report.csv              .csv                           (2,228 rows, 96 columns)
-  plots/ (75 per-participant
-    + global_summary.png)
+```mermaid
+flowchart LR
+    A["CGM traces"] --> B["Excursion detection\n+ nadir baseline"]
+    C["Food diary\n(MyFood24)"] --> D["Meal bundling"]
+    B --> E["Meal–excursion\nmatching"]
+    D --> E
+    E --> F["corrected_meal_times_ALL.csv"]
+    F --> G["Feature engineering\n(build_feature_matrix.py)"]
+    G --> H["feature_matrix.csv\n(2,228 rows × 96 cols)"]
+    H --> I["XGBoost\n(GroupKFold CV)"]
+    I --> J["CV metrics\n+ SHAP + ablation"]
 ```
 
 ---
 
-## Stage 1: CGM Meal Realignment (`cgm_meal_realignment.py`)
-
-The main pipeline runs in 10 steps:
-
-1. **Load ID mapping** -- reads participant-to-MyFood24 mapping, discovers CGM files
-2. **Classify data quality** -- detects 12h vs 24h time format per participant; classifies each day as batch or real-time entry
-3. **Process CGM** -- converts UTC to local time, interpolates short gaps (<=30 min), applies Savitzky-Golay smoothing, computes dG/dt
-4. **Detect excursions** -- two-stage detection with steep-rise confirmation and nadir re-anchoring to avoid false triggers on flat/noisy traces
-5. **Bundle diary entries** -- groups food items into meal events by meal label and entry timestamp proximity; cross-label temporal merging absorbs small snacks into adjacent meals
-6. **Resolve AM/PM ambiguity** -- for 12h-format participants, uses CGM excursion scoring first, then `Item added at` timestamps, then meal-label heuristics
-7. **Validate batch days** -- order-preserving assignment for batch-entry days (recalled order maps to excursion order)
-8. **Match meals to excursions** -- three-pass approach:
-   - **Pass 1 (Anchor)**: best meal per excursion via cost function (time distance + TOTSUG/rise similarity)
-   - **Pass 2 (Stacking)**: remaining meals stack onto anchors if CGM confirms glucose still elevated
-   - **Pass 3 (Conservative correction)**: high/medium shifts applied as-is; low-confidence shifts clamped to +/-30 min unless AM/PM or batch-day exceptions apply
-9. **Assign confidence scores** -- each meal event gets a confidence tier (see table below)
-10. **Produce outputs** -- writes corrected CSV, processing report, per-participant plots, and global summary plot
-
-### Excursion Detection (Step 4 detail)
-
-The two-stage approach prevents false triggers on flat-but-noisy CGM traces:
-
-- **Stage 1**: Scan for sustained positive dG/dt (>0.02 mmol/L per 5 min for >=15 min). Filter candidates where the actual glucose rise within the window is <0.3 mmol/L (noise).
-- **Stage 2**: For surviving candidates, find the first "steep rise" reading (dG/dt >0.08). Re-anchor the nadir by searching backward from the steep rise onset (not from the initial above-threshold reading). This correctly places the pre-meal nadir even when noisy readings triggered detection early.
-
-### Confidence Tiers
-
-| Confidence | Meaning | Shift Range |
-|---|---|---|
-| `high` | Strong CGM-diary agreement | < 30 min |
-| `medium` | Moderate shift, well-supported | 30--90 min |
-| `low_clamped` | Large shift on real-time day, capped to +/-30 min | 90--180 min |
-| `low_batch_override` | Batch day -- large shift accepted (recalled times unreliable) | 90--180 min |
-| `low_ampm_override` | 12h format -- CGM confirmed AM/PM fix | 90--180 min |
-| `stacked` | Meal stacked onto existing excursion (glucose still elevated) | N/A |
-| `rejected_implausible_shift` | Shift too large, reverted to reported time | > 180 min |
-| `no_match` | Significant CHO but no suitable excursion | N/A |
-| `low_cho_no_match` | CHO <= 5g (water, tea, black coffee) -- no match attempted | N/A |
-| `no_cgm_data` | No CGM data for that day | N/A |
-| `flat_trace` | CGM too flat (<2 excursions for >=3 significant meals) | N/A |
-| `cgm_gap` | Meal falls in CGM dropout period (>30 min gap) | N/A |
-
-### Confidence hierarchy (most to least trustworthy):
-```
-high > medium > stacked > low_ampm_override > low_batch_override > low_clamped > no_match > rejected
-```
-
----
-
-## Stage 2: Realigned Source Generation (`generate_realigned_source.py`)
-
-Takes the original food diary (`patient_extract1602.csv`) and the pipeline output (`corrected_meal_times_ALL.csv`), maps each food item row to its meal bundle, and applies the time shift from the CGM realignment.
-
-**Output**: `patient_extract1602_realigned.csv` -- same columns as source, with:
-- `Time consumed at` replaced with CGM-corrected time
-- New column `time_shift_min` showing the shift applied per row
-
----
-
-## Stage 3: Feature Matrix Builder (`build_feature_matrix.py`)
-
-Produces a single CSV (`feature_matrix.csv`) ready for XGBoost training. Each row is one glucose excursion (the unit of prediction). The target is the 2h postprandial iAUC. Only rows with a computed iAUC are included.
-
-### Pipeline Steps
-
-1. **Nutrient enrichment** -- joins patient_extract items back to meal events to recover the full nutrient panel (~35 columns). Disambiguates duplicate food names by time proximity.
-2. **Excursion-level aggregation** -- groups stacked meals by `(participant_id, excursion_id)`, sums all nutrient columns. The iAUC reflects the combined nutritional input.
-3. **iAUC computation** -- 2h postprandial incremental area under the curve (Wolever/FAO positive-only trapezoidal rule) from CGM readings anchored at the excursion nadir.
-4. **Glycaemic features (G)** -- baseline glucose, 4h trend (OLS slope), 1h statistics (mean, SD, range), 24h metrics (mean, SD, CV), glucose at t-15 and t-30 min.
-5. **Diet temporal features (Dt)** -- past 3h nutritional intake, time since last meal, time since last significant meal (CHO>10g), hour of day, meal label encoding.
-6. **Derived nutrient ratios (Dc)** -- starch/sugar fractions, fat/CHO ratio, protein/CHO ratio, fibre/CHO ratio, glycaemic brake index, n6/n3 ratio, rapid glucose equivalent.
-7. **Participant-level features** -- sex, total meals, days tracked, mean daily kcal/CHO.
-
-### iAUC Computation Detail
-
-```
-1. Convert nadir_time (local) to UTC using tz_offset
-2. Snap to nearest CGM reading (reject if >10 min away)
-3. G0 = baseline glucose at nadir
-4. Extract CGM window: [nadir, nadir + 120 min]
-5. Trapezoidal integration (positive-only):
-     For each consecutive pair (Gi, Gi+1):
-       delta_i   = max(Gi - G0, 0)
-       delta_i+1 = max(Gi+1 - G0, 0)
-       iAUC += 0.5 * (delta_i + delta_i+1) * dt_minutes
-6. Units: mmol*min/L
-```
-
-### Feature Matrix Columns (96 total)
-
-```
-IDENTIFIERS (8)
-  participant_id, excursion_id, event_ids, date,
-  meal_labels, n_meals_in_excursion, n_food_items, food_items_concat
-
-TARGET (1)
-  iAUC_mmol_min
-
-QUALITY / FILTERING (8)
-  confidence, match_type, batch_day,
-  baseline_glucose_mmol, n_readings, pct_coverage, max_gap_min, iauc_status
-
-DIET COMPOSITION -- Dc: Raw nutrients (35)
-  CHO, STAR, TOTSUG, FREE_SUGAR, ADDED_SUGAR,
-  GLUC, FRUCT, SUCR, MALT, LACT, GALACT, OLIGO,
-  PROT, FAT, KCALS, KJ, ALCO, WATER,
-  AOACFIB, ENGFIB,
-  SATFAC, MONOFACc, POLYFACc, TOTn3PFAC, TOTn6PFAC, FACTRANS,
-  MG, ZN, MN, FE, SE, VITD, CAFF,
-  totalVeg, totalFruit
-
-DIET COMPOSITION -- Dc: Derived ratios (12)
-  starch_fraction, sugar_fraction, free_sugar_fraction,
-  rapid_glucose_equiv, intrinsic_sugar,
-  fat_cho_ratio, protein_cho_ratio, fibre_cho_ratio,
-  fat_sugar_ratio, protein_sugar_ratio,
-  glycaemic_brake, n6_n3_ratio
-
-GLYCAEMIC CONTEXT -- G (10)
-  baseline_glucose_mmol,
-  past_4h_glucose_trend,
-  past_1h_glucose_mean, past_1h_glucose_sd, past_1h_glucose_range,
-  mean_glucose_24h, sd_glucose_24h, cv_glucose_24h,
-  glucose_at_t_minus_15, glucose_at_t_minus_30
-
-DIET TEMPORAL CONTEXT -- Dt (12)
-  past_3h_kcal, past_3h_cho, past_3h_sugar, past_3h_fat, past_3h_prot,
-  time_since_last_meal_min, time_since_last_sig_meal_min,
-  hour_of_day,
-  is_breakfast, is_lunch, is_dinner, is_snack
-
-PARTICIPANT-LEVEL (5)
-  sex, n_total_meals, n_days_tracked,
-  mean_daily_kcal, mean_daily_cho
-
-VALIDATION (6)
-  excursion_rise_mmol, excursion_peak_mmol,
-  peak_glucose_mmol, time_to_peak_min, glucose_at_120min_mmol,
-  iAUC_mmol_h
-```
-
----
-
-## Project Structure
+## Repository Structure
 
 ```
 RP Cleaning 5/
-├── source/                                    # Input data (do not modify)
-│   ├── cgm_data/
-│   │   └── CGM_<ParticipantID>.csv            # 95 CGM files
-│   ├── patient_extract1602.csv                # Food diary (16,216 rows, 168 columns)
-│   └── MyFood24 ID Matched(Sheet1).csv        # ID mapping (129 rows)
-├── output/                                    # Generated results
-│   ├── plots/
-│   │   ├── <PID>_overview.png                 # 75 per-participant plots
-│   │   └── global_summary.png
-│   ├── corrected_meal_times_ALL.csv           # 5,200 meal events with corrections
-│   ├── patient_extract1602_realigned.csv      # Realigned food diary (16,216 rows)
-│   ├── processing_report.csv                  # Per-participant summary (105 rows)
-│   └── feature_matrix.csv                     # XGBoost-ready matrix (2,228 rows, 96 cols)
-├── cgm_meal_realignment.py                    # Stage 1: CGM meal realignment (10 steps)
-├── generate_realigned_source.py               # Stage 2: Realigned source diary
-├── build_feature_matrix.py                    # Stage 3: Feature matrix + iAUC
-└── README.md
+│
+├── config.py                        # Single source of truth: paths, feature lists, hyperparams
+├── train.py                         # Training entry point (CLI: --tune, --shap, --ablation, --all)
+├── shap_analysis.py                 # Comprehensive 10-analysis SHAP pipeline (standalone)
+├── build_feature_matrix.py          # Stage 3: feature engineering + iAUC computation
+├── cgm_meal_realignment.py          # Stage 1: CGM-driven meal time correction
+├── generate_realigned_source.py     # Stage 2: apply corrections to raw food diary
+├── requirements.txt                 # Python dependencies
+│
+├── source/                          # Raw input data (do not modify)
+│   ├── cgm_data/                    # 95 per-participant CGM files (Dexcom)
+│   │   └── CGM_<ParticipantID>.csv
+│   ├── patient_extract1602.csv      # MyFood24 food diary (16,216 rows, 168 columns)
+│   └── MyFood24 ID Matched(Sheet1).csv  # Participant ↔ MyFood24 ID mapping
+│
+├── output/                          # Pipeline outputs (Stages 1–3)
+│   ├── feature_matrix.csv           # XGBoost-ready matrix (2,228 rows, 96 columns)
+│   ├── corrected_meal_times_ALL.csv # 5,200 meal events with CGM-corrected times
+│   ├── patient_extract1602_realigned.csv  # Realigned food diary
+│   ├── processing_report.csv        # Per-participant match summary (105 rows)
+│   ├── plots/                       # Per-participant CGM overlay plots + global summary
+│   └── results/                     # Pruning analysis outputs
+│
+├── training_outputs/                # Created at runtime by train.py
+│   ├── models/
+│   │   ├── final_model.ubj          # Trained XGBoost model
+│   │   └── optuna_study.pkl         # Optuna study object
+│   ├── results/
+│   │   ├── results.csv              # Baseline + tuned + ablation CV scores
+│   │   ├── best_params.json         # Best Optuna hyperparameters
+│   │   ├── shap_values.csv          # Raw SHAP values (N × n_features)
+│   │   └── shap_summary_table.csv   # SHAP feature importance ranking
+│   └── plots/
+│       ├── ablation.png             # Feature-group ablation bar chart
+│       └── shap/                    # 10 SHAP analysis figures
+│
+└── docs/
+    ├── audit_report.md              # Pipeline integrity audit
+    └── dc_pruning_report.md         # Dc feature collinearity & pruning analysis
 ```
 
 ---
 
-## Input Files
+## Quick Start
 
-| File | Location | Description |
-|---|---|---|
-| `patient_extract1602.csv` | `source/` | MyFood24 food diary export. Columns: Patient Id, Sex, Date (M/D/YYYY), Time consumed at, Item added at, Meal, Food name, CHO, FAT, PROT, KCALS, TOTSUG, AOACFIB, + ~150 nutrient columns |
-| `MyFood24 ID Matched(Sheet1).csv` | `source/` | Maps Participant ID (CGM ID) to MyFood24 ID. May contain compound IDs (e.g. `F105/T189`) or trailing spaces |
-| `CGM_<ParticipantID>.csv` | `source/cgm_data/` | Per-participant CGM files (Dexcom). Columns: isoDate (ISO 8601 UTC), event_type, event_subtype, glucose (mmol/L, may contain "Low"/"High"), duration. 5-minute sampling intervals |
+### Prerequisites
 
----
-
-## Output Files
-
-| File | Location | Description |
-|---|---|---|
-| `corrected_meal_times_ALL.csv` | `output/` | 5,200 meal events with original and corrected times, time shift, confidence, excursion details, 135 nutrient columns |
-| `processing_report.csv` | `output/` | Per-participant summary (105 rows): match counts by confidence tier, excursion counts, mean/median shifts |
-| `patient_extract1602_realigned.csv` | `output/` | Copy of source diary with corrected times and `time_shift_min` column (16,216 rows) |
-| `feature_matrix.csv` | `output/` | XGBoost-ready matrix filtered to rows with computed iAUC (2,228 rows, 96 columns) |
-| `plots/<PID>_overview.png` | `output/plots/` | Per-participant CGM overlay plots |
-| `plots/global_summary.png` | `output/plots/` | Aggregate statistics: shift histogram, CHO vs rise scatter, confidence breakdown, shift by meal type |
-
----
-
-## Per-Participant Plot Legend
-
-Each subplot covers one day:
-
-- **Steelblue line** -- raw CGM glucose trace
-- **Dashed blue vertical line** -- reported meal time (label: B=Breakfast, L=Lunch, D=Dinner, S=Snack, Dr=Drink)
-- **Solid orange vertical line** -- corrected meal time
-- **Orange arrow** -- direction and magnitude of the time shift (label shows shift in minutes)
-- **Green triangle** -- glucose nadir (start of excursion)
-- **Yellow banner** -- batch-entry day indicator
-
----
-
-## Configuration
-
-### `cgm_meal_realignment.py`
-
-| Parameter | Default | Description |
-|---|---|---|
-| `SMOOTHING_WINDOW` | 5 | Savitzky-Golay window size (odd) |
-| `SMOOTHING_POLY` | 2 | Savitzky-Golay polynomial order |
-| `PHYSIOLOGICAL_LAG_MIN` | 20 | Expected delay (min) from eating to glucose rise |
-| `MIN_EXCURSION_RISE_MMOL` | 0.8 | Minimum nadir-to-peak rise to qualify as excursion |
-| `DGDT_THRESHOLD` | 0.02 | dG/dt threshold for sustained rise detection (mmol/L per 5 min) |
-| `STEEP_RISE_DGDT` | 0.08 | dG/dt threshold for unambiguous rise confirmation |
-| `MIN_RISE_IN_WINDOW_MMOL` | 0.3 | Minimum glucose rise within sustained-rise window (noise filter) |
-| `NADIR_REANCHOR_LOOKBACK` | 15 min | Lookback from steep rise onset for nadir re-anchoring |
-| `EXCURSION_MERGE_MIN` | 25 | Merge excursions closer than this (minutes) |
-| `MAX_ALLOWABLE_SHIFT_MIN` | 180 | Hard ceiling -- reject any match exceeding this |
-| `LOW_CONFIDENCE_CAP_MIN` | 30 | Clamp applied to low-confidence shifts |
-| `CHO_THRESHOLD` | 5 | Minimum carbohydrate (g) to attempt CGM matching |
-| `BATCH_ENTRY_GAP_MIN` | 30 | Timestamp gap defining separate entry sessions |
-| `STACKING_WINDOW_MIN` | 45 | Window for stacking a meal onto an existing excursion |
-| `STACKING_ACTIVE_BUFFER_MIN` | 30 | Extra minutes past peak to extend active window |
-| `AMPM_CGM_SEARCH_WINDOW_MIN` | 45 | Search radius for AM/PM CGM excursion scoring |
-
-### `build_feature_matrix.py`
-
-| Parameter | Default | Description |
-|---|---|---|
-| `WINDOW_MIN` | 120 | Postprandial iAUC window (minutes) |
-| `MAX_NADIR_SNAP` | 10 | Max minutes between nadir time and nearest CGM reading |
-| `GAP_FLAG_MIN` | 15 | Flag events with CGM gaps exceeding this (minutes) |
-| `SENTINEL_LOW` | 2.2 | mmol/L replacement for "Low" CGM strings |
-| `SENTINEL_HIGH` | 22.2 | mmol/L replacement for "High" CGM strings |
-
----
-
-## Latest Run Results
-
-| Metric | Value |
-|---|---|
-| Total meal events (Stage 1) | 5,200 |
-| Participants | 105 (66F, 39M) |
-| Participants with CGM match | 68 |
-| Batch-entry days | 237 / 993 |
-| 12h-format participants | 9 |
-| Anchor matches | 2,232 |
-| Stacked meals | 32 |
-| Feature matrix rows (with iAUC) | 2,228 |
-| Median iAUC | 114.0 mmol*min/L |
-| Benchmark iAUC (40-60g CHO) | 116.5 mmol*min/L (within 99-180 range) |
-| Pipeline rise vs raw rise correlation | r = 0.871 |
-| Nutrient join success | 100% |
-| Glycaemic feature completeness | ~99% (filtered dataset) |
-
----
-
-## Downstream ML Usage
-
-When training an XGBoost model on `feature_matrix.csv`:
-
-- **Target**: `iAUC_mmol_min`
-- **Features**: all Dc, G, and Dt columns (47 raw nutrients + 12 ratios + 10 glycaemic + 12 temporal + 5 participant = 86 features)
-- **Filtering**: use `iauc_status == "ok"` for cleanest data (2,215 rows); include `gap_too_large` (13 rows) if coverage is acceptable
-- **Stacked excursions**: nutrients are already aggregated across all meals sharing an excursion_id. The iAUC reflects the combined nutritional input.
-
----
-
-## Requirements
-
-- Python 3.10+
-- pandas
-- numpy
-- scipy
-- matplotlib
+Python 3.10+ is required. Install dependencies:
 
 ```bash
-pip install pandas numpy scipy matplotlib
+pip install -r requirements.txt
 ```
 
----
+### Local CLI
 
-## Usage
+Ensure `output/feature_matrix.csv` is present (see [Data Availability](#data-availability)), then run:
 
 ```bash
-# 1. Ensure source data is in source/ and source/cgm_data/
-# 2. Run the three stages in order:
+# Baseline 5-fold CV only (~2 min)
+python train.py
 
-python cgm_meal_realignment.py          # Stage 1: ~2 min
-python generate_realigned_source.py     # Stage 2: ~10 sec
-python build_feature_matrix.py          # Stage 3: ~3 min
+# Baseline + Optuna hyperparameter tuning (~20–40 min)
+python train.py --tune
 
-# All outputs are written to output/
+# Baseline + SHAP analysis
+python train.py --shap
+
+# Baseline + feature-group ablation study
+python train.py --ablation
+
+# Full pipeline: tune + SHAP + ablation (~45–60 min)
+python train.py --all
+```
+
+All outputs are written to `training_outputs/`.
+
+### Standalone SHAP Analysis
+
+For the comprehensive 10-analysis SHAP suite (requires a trained model in `training_outputs/models/`):
+
+```bash
+python shap_analysis.py
+```
+
+### Upstream Pipeline (Data Preparation)
+
+If you need to rebuild `feature_matrix.csv` from raw data, run the three stages in order:
+
+```bash
+python cgm_meal_realignment.py       # Stage 1: CGM meal realignment (~2 min)
+python generate_realigned_source.py  # Stage 2: realigned source diary (~10 sec)
+python build_feature_matrix.py       # Stage 3: feature matrix + iAUC (~3 min)
 ```
 
 ---
 
-## Edge Cases Handled
+## Feature Groups
 
-- **Shift workers**: No waking-hours filter. Excursions detected 24/7. Meal labels treated as descriptors, not clock constraints.
-- **Overnight eating**: Cross-midnight meals search both current and previous day's excursions.
-- **Compound participant IDs**: e.g. `F105/T189` -- split and processed separately.
-- **Multiple MyFood24 IDs per participant**: e.g. B101 -> 2339, 2340 -- both processed.
-- **Flat CGM traces**: Non-diabetic participants with <2 excursions for >=3 meals -> `flat_trace`.
-- **CGM dropouts**: Gaps >30 min not interpolated; meals in gap periods -> `cgm_gap`.
-- **Mislabelled meals**: Cross-label merging and stacking handle desserts logged as separate meals.
-- **Mixed timezone offsets**: Most common offset per participant extracted from `Item added at`.
+The feature matrix contains 96 columns total. Of those, 87 are model features organised into five groups (plus an interaction set), with 6 leakage columns reserved for validation only.
+
+| Group | Code | Count | Description |
+|-------|------|------:|-------------|
+| Diet composition | **Dc** | 34 + 12 | 34 raw nutrients (CHO, FAT, PROT, KCALS, micronutrients, etc.) + 12 derived ratios (fat_cho_ratio, fibre_cho_ratio, glycaemic_brake, etc.) |
+| Glycaemic context | **G** | 14 | Pre-meal CGM state: baseline_glucose_mmol, past_4h_glucose_trend, 1h stats, 24h variability metrics (MAGE, CONGA, MODD, CV) |
+| Diet temporal | **Dt** | 12 | past_3h_kcal, time_since_last_meal_min, hour_of_day, meal-type flags |
+| Participant | **P** | 5 | sex, n_total_meals, n_days_tracked, mean_daily_kcal, mean_daily_cho |
+| Interactions | **I** | 10 | Engineered cross-terms: CHO × baseline glucose, CHO × fibre, MAGE × baseline, etc. |
+| **Leakage** | -- | 6 | **NEVER use as features:** iAUC_mmol_h, excursion_rise_mmol, peak_glucose_mmol, etc. |
+
+Feature lists are defined in `config.py` — the single source of truth for all column names.
+
+---
+
+## Training Pipeline
+
+### Model Configuration
+
+| Setting | Value |
+|---------|-------|
+| Algorithm | XGBoost regressor (`xgboost.XGBRegressor`) |
+| Validation | 5-fold **GroupKFold** (split by `participant_id` — no data leakage across participants) |
+| Metrics | MAE, RMSE, R² |
+| Row filter | `iauc_status == "ok"` → ~2,215 usable rows from 2,228 total |
+| Encoding | `sex`: Male → 0, Female → 1 (only manual encoding; XGBoost handles NaN natively) |
+| Baseline hyperparams | Defined in `config.BASELINE_PARAMS` |
+| Optuna HPO | 100 trials, TPE sampler; search space in `config.OPTUNA_SEARCH_SPACE` |
+
+### CLI Flags
+
+| Flag | What it does | Approx. time |
+|------|-------------|--------------|
+| *(none)* | Baseline 5-fold CV + train final model | ~2 min |
+| `--tune` | + Optuna hyperparameter optimisation (100 trials) | ~20–40 min |
+| `--shap` | + SHAP summary and top-4 dependence plots | ~5 min |
+| `--ablation` | + Feature-group ablation study (10 subsets) | ~15 min |
+| `--all` | All of the above | ~45–60 min |
+| `--data PATH` | Override the default `feature_matrix.csv` path | — |
+
+### Pipeline Steps
+
+1. **Load & filter** — read `feature_matrix.csv`, keep rows where `iauc_status == "ok"`, encode `sex`
+2. **Baseline CV** — 5-fold GroupKFold with `config.BASELINE_PARAMS`
+3. **Tuning** *(optional)* — Optuna Bayesian search, save best params to `best_params.json`
+4. **Final model** — retrain on all data with the active params, save to `final_model.ubj`
+5. **SHAP** *(optional)* — TreeExplainer values, beeswarm + dependence plots
+6. **Ablation** *(optional)* — CV each feature-group combination, produce bar chart
+
+---
+
+## Key Results
+
+### Ablation Study
+
+The ablation study reveals that pre-meal glycaemic context dominates prediction, while diet composition alone carries no signal:
+
+| Feature Set | n Features | R² (mean ± SD) |
+|-------------|----------:|----------------|
+| G only | 14 | ~+0.15 |
+| Dc only | 46 | ~−0.004 |
+| Dt only | 12 | ~−0.011 |
+| G + Dc + Dt + P + I (full) | 87 | modest improvement over G alone |
+
+Diet composition (Dc) and temporal diet (Dt) features perform worse than predicting the population mean when used in isolation, but contribute marginally when combined with glycaemic context. SHAP analysis at the feature level explains this finding — baseline glucose and glucose variability metrics dominate the SHAP importance ranking, while individual nutrient features have near-zero mean absolute SHAP values.
+
+> Actual ablation scores are saved to `training_outputs/results/results.csv` after each run.
+
+---
+
+## Data Availability
+
+| File | Included in repo | Notes |
+|------|:---:|-------|
+| `output/feature_matrix.csv` | Yes (gittracked) | 2,228 rows × 96 columns; contains participant-level data |
+| `source/` (CGM + diary) | Yes | Raw input data for the upstream pipeline |
+| `training_outputs/` | Partially | Model, SHAP values, and plots are generated at runtime |
+
+The feature matrix and source data are included in this repository. If you only need to run the ML pipeline (`train.py`), you need `output/feature_matrix.csv`. To rebuild it from scratch, you need the full `source/` directory.
+
+---
+
+## Reference
+
+> Singh R, Toumi M & Salathe M (2025). Predicting postprandial glucose response from CGM data and meal composition using machine learning. *Frontiers in Nutrition* **12**: 1539118. doi: [10.3389/fnut.2025.1539118](https://doi.org/10.3389/fnut.2025.1539118)
+
+---
+
+## Further Reading
+
+- [`docs/audit_report.md`](docs/audit_report.md) — Pipeline integrity audit (file checks, schema validation)
+- [`docs/dc_pruning_report.md`](docs/dc_pruning_report.md) — Diet composition feature collinearity analysis (VIF, SHAP ranking, pruning decisions)
+- [`config.py`](config.py) — All feature lists, hyperparameters, paths, and search spaces in one place
 
 ---
 
