@@ -171,7 +171,7 @@ print("=" * 60)
 
 plt.figure(figsize=(10, 10))
 shap.summary_plot(shap_vals, X, max_display=20, show=False, cmap=SHAP_CMAP)
-plt.title("SHAP Global Feature Importance — iAUC Prediction", fontsize=12)
+plt.title("SHAP Global Feature Importance", fontsize=12)
 plt.tight_layout()
 p = SHAP_PLOT_DIR / "01_beeswarm_top20.png"
 plt.savefig(p, dpi=150, bbox_inches="tight")
