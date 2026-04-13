@@ -484,6 +484,9 @@ print("\n" + "=" * 60)
 print("ANALYSIS 9 — Dc SHAP Importance by Meal Type")
 print("=" * 60)
 
+# NOTE: is_breakfast / is_lunch / is_dinner / is_snack were removed from DT_COLS
+# as model features but are retained here as stratification masks because they
+# still exist in the raw feature_matrix.csv.
 meal_types = {
     "Breakfast": df["is_breakfast"] == 1,
     "Lunch":     df["is_lunch"] == 1,
@@ -600,15 +603,7 @@ checks.append(("CHO SHAP direction",
                "Positive",
                "OK" if ok else "RED FLAG: not positive"))
 
-# 3. is_breakfast direction (renumbered after removing pruned-feature checks)
-d = get_direction("is_breakfast")
-ok = d is not None and d > 0
-checks.append(("is_breakfast SHAP",
-               f"{d:+.4f}" if d is not None else "N/A",
-               "Positive",
-               "OK" if ok else "RED FLAG: not positive"))
-
-# 4. Participant leakage check
+# 3. Participant leakage check
 r_meals = get_rank("n_total_meals")
 r_days = get_rank("n_days_tracked")
 leakage_flag = False
