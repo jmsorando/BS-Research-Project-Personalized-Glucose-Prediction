@@ -171,6 +171,7 @@ print("=" * 60)
 
 plt.figure(figsize=(10, 10))
 shap.summary_plot(shap_vals, X, max_display=20, show=False, cmap=SHAP_CMAP)
+plt.gca().set_xlabel("SHAP value (mmol·min/L)")
 plt.title("SHAP Global Feature Importance", fontsize=12)
 plt.tight_layout()
 p = SHAP_PLOT_DIR / "01_beeswarm_top20.png"
@@ -231,6 +232,7 @@ fig, axes = plt.subplots(2, 4, figsize=(20, 10))
 for i, (ax, feat) in enumerate(zip(axes.flat, top8)):
     shap.dependence_plot(feat, shap_vals, X, interaction_index="auto",
                          ax=ax, show=False, cmap=SHAP_CMAP)
+    ax.set_ylabel("SHAP value (mmol·min/L)")
     ax.set_title(f"#{i+1} {feat}", fontsize=10)
 plt.suptitle("SHAP Dependence Plots — Top 8 Features", fontsize=13, y=1.01)
 plt.tight_layout()
@@ -294,6 +296,7 @@ for label, idx in meal_cases.items():
     )
     fig = plt.figure(figsize=(10, 8))
     shap.waterfall_plot(expl, max_display=15, show=False)
+    plt.gca().set_xlabel("SHAP value (mmol·min/L)")
     plt.title(f"Waterfall — {label}\n"
               f"actual={y.iloc[idx]:.1f}, pred={preds[idx]:.1f}", fontsize=11)  # type: ignore[union-attr]
     plt.tight_layout()
@@ -320,6 +323,7 @@ if "CHO" in cfg.ALL_FEATURES and "baseline_glucose_mmol" in cfg.ALL_FEATURES:
         interaction_index="baseline_glucose_mmol",
         ax=ax, show=False, cmap=SHAP_CMAP,
     )
+    ax.set_ylabel("SHAP value (mmol·min/L)")
     ax.set_title("CHO SHAP value coloured by baseline glucose\n"
                  "(warm = high baseline → amplified carb response?)", fontsize=11)
     plt.tight_layout()
@@ -335,6 +339,7 @@ if "CHO" in cfg.ALL_FEATURES and "baseline_glucose_mmol" in cfg.ALL_FEATURES:
         interaction_index="CHO",
         ax=ax, show=False, cmap=SHAP_CMAP,
     )
+    ax.set_ylabel("SHAP value (mmol·min/L)")
     ax.set_title("baseline_glucose_mmol SHAP value coloured by CHO\n"
                  "(warm = high CHO → amplified glucose effect?)", fontsize=11)
     plt.tight_layout()
@@ -436,6 +441,7 @@ fig, ax = plt.subplots(1, 1, figsize=(9, 12))
 
 plt.sca(ax)
 shap.summary_plot(shap_vals_dc, X[dc_feats], max_display=25, show=False, cmap=SHAP_CMAP)
+ax.set_xlabel("SHAP value (mmol·min/L)")
 ax.set_title("SHAP — Dc-only model", fontsize=11)
 
 plt.tight_layout()

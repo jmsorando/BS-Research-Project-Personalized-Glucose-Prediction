@@ -212,6 +212,7 @@ def run_shap(model, X):
 
     fig, ax = plt.subplots(figsize=(10, 8))
     shap.summary_plot(shap_vals, X, max_display=20, show=False, cmap=plt.cm.coolwarm)
+    plt.gca().set_xlabel("SHAP value (mmol·min/L)")
     plt.tight_layout()
     p = cfg.PLOT_DIR / "shap_summary.png"
     plt.savefig(p, dpi=150, bbox_inches="tight")
@@ -224,6 +225,7 @@ def run_shap(model, X):
     fig, axes = plt.subplots(2, 2, figsize=(12, 9))
     for ax, feat in zip(axes.flat, top4):
         shap.dependence_plot(feat, shap_vals, X, ax=ax, show=False)
+        ax.set_ylabel("SHAP value (mmol·min/L)")
     plt.tight_layout()
     p = cfg.PLOT_DIR / "shap_dependence_top4.png"
     plt.savefig(p, dpi=150, bbox_inches="tight")

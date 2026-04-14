@@ -95,8 +95,8 @@ def plot_scatter(oof: pd.DataFrame, r2: float, mae: float) -> None:
 
     ax.set_xlim(lims)
     ax.set_ylim(lims)
-    ax.set_xlabel("Observed iAUC (mmol·min)", fontsize=12)
-    ax.set_ylabel("Predicted iAUC (mmol·min)", fontsize=12)
+    ax.set_xlabel("Observed iAUC (mmol·min/L)", fontsize=12)
+    ax.set_ylabel("Predicted iAUC (mmol·min/L)", fontsize=12)
     ax.set_aspect("equal", adjustable="box")
 
     ax.spines["top"].set_visible(False)
@@ -105,7 +105,7 @@ def plot_scatter(oof: pd.DataFrame, r2: float, mae: float) -> None:
 
     ax.text(
         0.04, 0.96,
-        f"$R^2$ = {r2:.3f}\nMAE = {mae:.1f} mmol·min",
+        f"$R^2$ = {r2:.3f}\nMAE = {mae:.1f} mmol·min/L",
         transform=ax.transAxes,
         va="top", ha="left",
         fontsize=11,
