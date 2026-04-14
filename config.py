@@ -97,7 +97,7 @@ DT_COLS = [
 ]
 
 P_COLS = [
-    "sex", "n_total_meals", "n_days_tracked", "mean_daily_kcal", "mean_daily_cho",
+    "sex",
 ]
 
 INTERACTION_COLS = [
