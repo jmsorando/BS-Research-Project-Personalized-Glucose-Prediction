@@ -1,21 +1,62 @@
 """
-Out-of-fold predictions + publication scatter plot.
+plots.py
+────────
+Publication figures and out-of-fold diagnostics.
+
+Subcommands:
+  iauc-dist   — iAUC distribution histogram + per-participant boxplot
+  oof-scatter — cross-validated OOF predictions + observed-vs-predicted scatter
 """
+import argparse
 import json
 from typing import cast
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-import matplotlib.pyplot as plt
-from sklearn.model_selection import GroupKFold
-from sklearn.metrics import mean_absolute_error, r2_score
 from scipy import stats
+from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.model_selection import GroupKFold
 
 import config as cfg
 
+UNIT = "mmol·min/L"
 
-def main() -> None:
+
+def plot_iauc_distribution() -> None:
+    df = cast(pd.DataFrame, pd.read_csv(cfg.FEATURE_MATRIX))
+    df = df[df["iauc_status"] == cfg.IAUC_STATUS].copy()
+    y = cast(pd.Series, df[cfg.TARGET])
+
+    _, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+
+    ax1.hist(y, bins=40, color="#4472C4", edgecolor="white", linewidth=0.3)
+    ax1.axvline(y.mean(),   color="red",    linestyle="--", linewidth=1.2, label="Mean")
+    ax1.axvline(y.median(), color="orange", linestyle="--", linewidth=1.2, label="Median")
+    ax1.set_xlabel(f"iAUC ({UNIT})")
+    ax1.set_ylabel("Number of meal events")
+    ax1.set_title("(a) iAUC distribution")
+    ax1.legend(frameon=False)
+
+    participants = sorted(cast(pd.Series, df["participant_id"]).unique())[:15]
+    groups = [df.loc[df["participant_id"] == p, cfg.TARGET].values for p in participants]
+    ax2.boxplot(groups, labels=participants, showfliers=True)
+    ax2.set_xlabel("Participant ID")
+    ax2.set_ylabel(f"iAUC ({UNIT})")
+    ax2.set_title("(b) iAUC per participant (sample)")
+    ax2.tick_params(axis="x", rotation=90)
+
+    plt.tight_layout()
+
+    for ext in ("png", "svg"):
+        p = cfg.PLOT_DIR / f"pub_figure1_iAUC_distribution.{ext}"
+        plt.savefig(p, dpi=200, bbox_inches="tight")
+        print(f"  Saved: {p}")
+    plt.close()
+
+
+def compute_oof_predictions() -> pd.DataFrame:
     df = cast(pd.DataFrame, pd.read_csv(cfg.FEATURE_MATRIX))
     df = df[df["iauc_status"] == cfg.IAUC_STATUS].reset_index(drop=True)
     df["sex"] = cast(pd.Series, df["sex"]).map({"Male": 0, "Female": 1})
@@ -55,15 +96,10 @@ def main() -> None:
     out_csv = cfg.RESULTS_DIR / "oof_predictions.csv"
     oof.to_csv(out_csv, index=False)
     print(f"[oof] saved -> {out_csv}")
-
-    r2 = r2_score(oof["actual_iauc"], oof["predicted_iauc"])
-    mae = mean_absolute_error(oof["actual_iauc"], oof["predicted_iauc"])
-    print(f"[oof] R²={r2:.3f}  MAE={mae:.2f}")
-
-    plot_scatter(oof, r2, mae)
+    return oof
 
 
-def plot_scatter(oof: pd.DataFrame, r2: float, mae: float) -> None:
+def plot_oof_scatter(oof: pd.DataFrame, r2: float, mae: float) -> None:
     POINT_COLOUR = "#2166AC"
 
     x = np.asarray(oof["actual_iauc"].to_numpy(), dtype=float)
@@ -74,7 +110,9 @@ def plot_scatter(oof: pd.DataFrame, r2: float, mae: float) -> None:
     pad = 0.05 * (hi - lo)
     lims = (lo - pad, hi + pad)
 
-    slope, intercept, _, _, _ = stats.linregress(x, yhat)
+    slope_v, intercept_v, _, _, _ = stats.linregress(x, yhat)
+    slope = float(slope_v)
+    intercept = float(intercept_v)
     xx = np.linspace(lims[0], lims[1], 200)
     yy = slope * xx + intercept
 
@@ -95,8 +133,8 @@ def plot_scatter(oof: pd.DataFrame, r2: float, mae: float) -> None:
 
     ax.set_xlim(lims)
     ax.set_ylim(lims)
-    ax.set_xlabel("Observed iAUC (mmol·min/L)", fontsize=12)
-    ax.set_ylabel("Predicted iAUC (mmol·min/L)", fontsize=12)
+    ax.set_xlabel(f"Observed iAUC ({UNIT})", fontsize=12)
+    ax.set_ylabel(f"Predicted iAUC ({UNIT})", fontsize=12)
     ax.set_aspect("equal", adjustable="box")
 
     ax.spines["top"].set_visible(False)
@@ -105,7 +143,7 @@ def plot_scatter(oof: pd.DataFrame, r2: float, mae: float) -> None:
 
     ax.text(
         0.04, 0.96,
-        f"$R^2$ = {r2:.3f}\nMAE = {mae:.1f} mmol·min/L",
+        f"$R^2$ = {r2:.3f}\nMAE = {mae:.1f} {UNIT}",
         transform=ax.transAxes,
         va="top", ha="left",
         fontsize=11,
@@ -119,6 +157,31 @@ def plot_scatter(oof: pd.DataFrame, r2: float, mae: float) -> None:
     plt.savefig(out, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"[plot] saved -> {out}")
+
+
+def run_oof_scatter() -> None:
+    oof = compute_oof_predictions()
+    r2 = r2_score(oof["actual_iauc"], oof["predicted_iauc"])
+    mae = mean_absolute_error(oof["actual_iauc"], oof["predicted_iauc"])
+    print(f"[oof] R²={r2:.3f}  MAE={mae:.2f}")
+    plot_oof_scatter(oof, r2, mae)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "which",
+        choices=["iauc-dist", "oof-scatter", "all"],
+        nargs="?",
+        default="all",
+        help="Which figure to generate (default: all)",
+    )
+    args = parser.parse_args()
+
+    if args.which in ("iauc-dist", "all"):
+        plot_iauc_distribution()
+    if args.which in ("oof-scatter", "all"):
+        run_oof_scatter()
 
 
 if __name__ == "__main__":
