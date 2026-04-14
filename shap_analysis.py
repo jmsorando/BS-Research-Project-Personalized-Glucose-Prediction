@@ -401,8 +401,7 @@ ax.axvline(float(np.mean(within)), color=COLOUR["G"], lw=2, ls="--")
 ax.axvline(float(np.mean(across)), color=COLOUR["Dc"], lw=2, ls="--")
 ax.set_xlabel("Cosine similarity of SHAP vectors")
 ax.set_ylabel("Count")
-ax.set_title("SHAP Profile Similarity: Within vs Across Participants\n"
-             "(large gap → model memorising participants)")
+ax.set_title("SHAP Profile Similarity: Within vs Across Participants")
 ax.legend()
 plt.tight_layout()
 p = SHAP_PLOT_DIR / "06_within_vs_across_shap_similarity.png"
@@ -530,8 +529,7 @@ fig, ax = plt.subplots(figsize=(14, 12))
 mask_tri = np.triu(np.ones_like(shap_corr_dc, dtype=bool))
 sns.heatmap(shap_corr_dc, mask=mask_tri, cmap="RdBu_r", center=0,
             vmin=-1, vmax=1, annot=False, ax=ax, linewidths=0.3)
-ax.set_title("SHAP Value Correlation — Dc Features\n"
-             "(red = move together; blue = oppose each other)", fontsize=12)
+ax.set_title("SHAP Value Correlation — Dc Features", fontsize=12)
 plt.tight_layout()
 p = SHAP_PLOT_DIR / "10_shap_correlation_dc.png"
 plt.savefig(p, dpi=150, bbox_inches="tight")
