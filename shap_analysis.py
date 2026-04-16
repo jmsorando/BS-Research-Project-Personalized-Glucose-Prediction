@@ -58,6 +58,64 @@ COLOUR = {
 # SHAP beeswarm/summary colourmap: coolwarm gives softer journal-friendly poles
 SHAP_CMAP = plt.cm.coolwarm  # type: ignore[attr-defined]
 
+# ── Feature units (for axis labels) ─────────────────────────────────────────
+_G_PER_MEAL = "g"
+_MMOL_L = "mmol/L"
+
+FEATURE_UNITS = {
+    # DC_RAW — macronutrients & sugars (g per meal)
+    **{f: _G_PER_MEAL for f in [
+        "CHO", "STAR", "TOTSUG", "FREE_SUGAR", "ADDED_SUGAR",
+        "GLUC", "FRUCT", "SUCR", "MALT", "LACT", "GALACT", "OLIGO",
+        "PROT", "FAT", "ALCO", "WATER",
+        "AOACFIB", "ENGFIB",
+        "SATFAC", "MONOFACc", "POLYFACc", "TOTn3PFAC", "TOTn6PFAC", "FACTRANS",
+        "totalVeg", "totalFruit",
+    ]},
+    "KCALS": "kcal",
+    "MG": "mg", "ZN": "mg", "MN": "mg", "FE": "mg", "CAFF": "mg",
+    "SE": "µg", "VITD": "µg",
+    # DC_RATIOS — dimensionless
+    **{f: "g/g" for f in [
+        "starch_fraction", "sugar_fraction", "free_sugar_fraction",
+        "protein_cho_ratio", "fat_sugar_ratio", "protein_sugar_ratio",
+        "n6_n3_ratio",
+    ]},
+    "rapid_glucose_equiv": _G_PER_MEAL,
+    "intrinsic_sugar": _G_PER_MEAL,
+    "glycaemic_brake": "weighted g/g",
+    # G_COLS — glycaemic context
+    "baseline_glucose_mmol": _MMOL_L,
+    "past_1h_glucose_mean": _MMOL_L,
+    "past_1h_glucose_sd": _MMOL_L,
+    "mean_glucose_24h": _MMOL_L,
+    "sd_glucose_24h": _MMOL_L,
+    "mage_24h": _MMOL_L,
+    "conga1_24h": _MMOL_L,
+    "conga2_24h": _MMOL_L,
+    "modd_24h": _MMOL_L,
+    "glucose_at_t_minus_15": _MMOL_L,
+    "glucose_at_t_minus_30": _MMOL_L,
+    "past_4h_glucose_trend": "mmol/L/h",
+    # DT_COLS — diet temporal
+    "past_3h_cho": _G_PER_MEAL, "past_3h_sugar": _G_PER_MEAL,
+    "past_3h_fat": _G_PER_MEAL, "past_3h_prot": _G_PER_MEAL,
+    "time_since_last_meal_min": "min",
+    "hour_of_day": "h",
+    # P_COLS
+    "sex": "0=M / 1=F",
+    # INTERACTION_COLS
+    "cho_x_baseline_glucose": "g·mmol/L",
+    "cho_x_mage": "g·mmol/L",
+    "cho_x_time_since_last_meal": "g·min",
+    "cho_x_fibre": "g²",
+    "cho_x_fat": "g²",
+    "cho_x_protein": "g²",
+    "cho_x_hour_of_day": "g·h",
+    "glucose_trend_x_hour_of_day": "mmol/L",
+    "mage_x_baseline_glucose": "(mmol/L)²",
+}
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # DATA LOADING
@@ -232,8 +290,16 @@ fig, axes = plt.subplots(2, 4, figsize=(20, 10))
 for i, (ax, feat) in enumerate(zip(axes.flat, top8)):
     shap.dependence_plot(feat, shap_vals, X, interaction_index="auto",
                          ax=ax, show=False, cmap=SHAP_CMAP)
+    unit = FEATURE_UNITS.get(feat, "")
+    ax.set_xlabel(f"{feat} ({unit})" if unit else feat)
     ax.set_ylabel("SHAP value (mmol·min/L)")
     ax.set_title(f"#{i+1} {feat}", fontsize=10)
+for cb_ax in fig.axes:
+    if cb_ax not in axes.flat:
+        label = cb_ax.get_ylabel()
+        cb_unit = FEATURE_UNITS.get(label, "")
+        if cb_unit:
+            cb_ax.set_ylabel(f"{label} ({cb_unit})")
 plt.suptitle("SHAP Dependence Plots — Top 8 Features", fontsize=13, y=1.01)
 plt.tight_layout()
 p = SHAP_PLOT_DIR / "03_dependence_top8.png"
