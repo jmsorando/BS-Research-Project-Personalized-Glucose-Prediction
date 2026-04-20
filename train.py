@@ -46,6 +46,12 @@ def load_data(path: Path = cfg.FEATURE_MATRIX):
     # Validate: make sure no leakage columns slipped in
     leakage_present = [c for c in cfg.LEAKAGE_COLS if c in cfg.ALL_FEATURES]
     assert not leakage_present, f"Leakage columns in feature list: {leakage_present}"
+    missing_features, excluded_present = cfg.validate_feature_contract(df.columns)
+    if missing_features:
+        raise ValueError(f"Configured model features missing from dataset: {missing_features}")
+    if excluded_present:
+        print("[data]  excluded-by-design columns detected (not used for training):")
+        print(f"        {', '.join(excluded_present)}")
 
     X = df[cfg.ALL_FEATURES]
     y = df[cfg.TARGET]
@@ -329,6 +335,8 @@ def main():
     print("═"*60)
     baseline_results = cross_validate(X, y, groups, cfg.BASELINE_PARAMS, label="baseline")
     all_rows.append({
+        "result_type": "cv_summary",
+        "parameter_source": "baseline",
         "label":      "baseline",
         "n_features": X.shape[1],
         "R2_mean":    baseline_results.R2.mean(),
@@ -350,6 +358,8 @@ def main():
         print("─"*60)
         tuned_results = cross_validate(X, y, groups, best_params, label="tuned")
         all_rows.append({
+            "result_type": "cv_summary",
+            "parameter_source": "tuned",
             "label":      "tuned",
             "n_features": X.shape[1],
             "R2_mean":    tuned_results.R2.mean(),
@@ -378,11 +388,32 @@ def main():
         print("ABLATION STUDY")
         print("═"*60)
         ablation_results = ablation(X, y, groups, active_params)
+        param_source = "tuned" if args.tune else "baseline"
         for _, row in ablation_results.iterrows():
-            all_rows.append(row.to_dict())
+            row_dict = row.to_dict()
+            all_rows.append({
+                "result_type": "ablation",
+                "parameter_source": param_source,
+                **row_dict,
+            })
 
     # ── Save single results table ────────────────────────────────────────
-    pd.DataFrame(all_rows).to_csv(cfg.RESULTS_DIR / "results.csv", index=False)
+    results_df = pd.DataFrame(all_rows)
+    preferred_order = [
+        "result_type",
+        "parameter_source",
+        "label",
+        "n_features",
+        "R2_mean",
+        "R2_std",
+        "MAE_mean",
+        "MAE_std",
+    ]
+    ordered_cols = [c for c in preferred_order if c in results_df.columns] + [
+        c for c in results_df.columns if c not in preferred_order
+    ]
+    results_df = results_df[ordered_cols]
+    results_df.to_csv(cfg.RESULTS_DIR / "results.csv", index=False)
 
     print("\n✓ Pipeline complete. Outputs in:", cfg.OUTPUT_DIR)
 

@@ -137,6 +137,11 @@ python generate_realigned_source.py  # Stage 2: realigned source diary (~10 sec)
 python build_feature_matrix.py       # Stage 3: feature matrix + iAUC (~3 min)
 ```
 
+Stage 1 auto-discovers the latest `patient_extract*.csv` in `source/` and writes
+the selected filename to `output/pipeline_inputs.json`. Stage 2 reuses that same
+file to keep source-to-realignment chaining consistent for refreshed extracts and
+new participant drops.
+
 ---
 
 ## Feature Groups
@@ -153,6 +158,9 @@ The feature matrix contains 96 columns total. Of those, 87 are model features or
 | **Leakage** | -- | 6 | **NEVER use as features:** iAUC_mmol_h, excursion_rise_mmol, peak_glucose_mmol, etc. |
 
 Feature lists are defined in `config.py` — the single source of truth for all column names.
+Some engineered columns are intentionally excluded from model training to reduce
+participant-specific bias and contextual over-conditioning; see
+`config.INTENTIONALLY_EXCLUDED_MODEL_COLS`.
 
 ---
 

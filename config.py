@@ -6,6 +6,7 @@ Import this everywhere. Never hardcode paths in notebooks or scripts.
 """
 
 from pathlib import Path
+from typing import Iterable
 
 # ── Repo root (works whether running locally or in Colab) ─────────────────
 # In Colab after cloning:  /content/<your-repo-name>/
@@ -15,6 +16,13 @@ REPO_ROOT = Path(__file__).resolve().parent
 # ── Data ──────────────────────────────────────────────────────────────────
 # feature_matrix.csv lives in output/ in this repo
 FEATURE_MATRIX = REPO_ROOT / "output" / "feature_matrix.csv"
+SOURCE_DIR = REPO_ROOT / "source"
+OUTPUT_DATA_DIR = REPO_ROOT / "output"
+CGM_DIR = SOURCE_DIR / "cgm_data"
+REALIGNED_TIMES = OUTPUT_DATA_DIR / "corrected_meal_times_ALL.csv"
+REALIGNED_EXTRACT = OUTPUT_DATA_DIR / "patient_extract1602_realigned.csv"
+SOURCE_EXTRACT_DEFAULT = SOURCE_DIR / "patient_extract1602.csv"
+PIPELINE_INPUTS_META = OUTPUT_DATA_DIR / "pipeline_inputs.json"
 
 # ── Outputs (created at runtime if missing) ───────────────────────────────
 OUTPUT_DIR  = REPO_ROOT / "training_outputs"
@@ -123,6 +131,66 @@ LEAKAGE_COLS = [
 ]
 
 ALL_FEATURES = DC_RAW + DC_RATIOS + G_COLS + DT_COLS + P_COLS + INTERACTION_COLS
+
+# Engineered columns intentionally excluded from modelling to limit participant-
+# specific bias and avoid over-conditioning on contextual proxies.
+INTENTIONALLY_EXCLUDED_MODEL_COLS = [
+    "n_total_meals",
+    "n_days_tracked",
+    "mean_daily_kcal",
+    "mean_daily_cho",
+    "past_3h_kcal",
+    "time_since_last_sig_meal_min",
+    "is_breakfast",
+    "is_lunch",
+    "is_dinner",
+    "is_snack",
+    "past_1h_glucose_range",
+    "cv_glucose_24h",
+    "fat_cho_ratio",
+    "fibre_cho_ratio",
+    "cv_x_hour_of_day",
+]
+
+
+def discover_latest_extract(source_dir: Path = SOURCE_DIR) -> Path:
+    """
+    Discover the best available patient_extract file in source/.
+    Preference order:
+      1) filenames containing 'filtered' or 'corrected'
+      2) filenames containing '1602'
+      3) any filename containing 'patient_extract'
+    """
+    candidates = []
+    for p in source_dir.glob("*.csv"):
+        name = p.name.lower()
+        if "patient_extract" in name:
+            score = 0
+            if "filtered" in name or "corrected" in name:
+                score += 10
+            if "1602" in name:
+                score += 5
+            candidates.append((score, p.name, p))
+
+    if not candidates:
+        return SOURCE_EXTRACT_DEFAULT
+
+    # Higher score first, then lexical to keep deterministic selection.
+    candidates.sort(key=lambda x: (-x[0], x[1]))
+    return candidates[0][2]
+
+
+def validate_feature_contract(available_columns: Iterable[str]) -> tuple[list[str], list[str]]:
+    """
+    Validate feature contract against a table schema.
+    Returns:
+      - missing_model_features: ALL_FEATURES not found in schema
+      - excluded_present: intentionally excluded columns present in schema
+    """
+    cols = set(available_columns)
+    missing_model_features = [c for c in ALL_FEATURES if c not in cols]
+    excluded_present = [c for c in INTENTIONALLY_EXCLUDED_MODEL_COLS if c in cols]
+    return missing_model_features, excluded_present
 
 # ── Baseline XGBoost hyperparameters ─────────────────────────────────────
 BASELINE_PARAMS = dict(

@@ -12,17 +12,15 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union
 
 import pandas as pd
 import numpy as np
-from pathlib import Path
 from datetime import timedelta
 from collections import Counter
+import config as cfg
 
 # ── Configuration ─────────────────────────────────────────────────
-BASE         = Path(r"C:\Users\Jose Miguel Sorando\Documents\RP Cleaning 5")
-CGM_DIR      = BASE / "source" / "cgm_data"
-MEAL_FILE    = BASE / "output" / "corrected_meal_times_ALL.csv"
-EXTRACT_FILE = BASE / "output" / "patient_extract1602_realigned.csv"
-SOURCE_FILE  = BASE / "source" / "patient_extract1602.csv"
-OUTPUT_FILE  = BASE / "output" / "feature_matrix.csv"
+CGM_DIR = cfg.CGM_DIR
+MEAL_FILE = cfg.REALIGNED_TIMES
+EXTRACT_FILE = cfg.REALIGNED_EXTRACT
+OUTPUT_FILE = cfg.FEATURE_MATRIX
 
 WINDOW_MIN     = 120
 EXPECTED_READS = 25
@@ -154,6 +152,7 @@ def step1_nutrient_enrichment(meals, extract):
     """Join patient_extract items to meal events to recover full nutrient panel."""
     print("\n  Step 1: Nutrient Enrichment")
     print("  " + "-" * 40)
+    extract = extract.copy()
 
     # Normalise dates
     extract["_date_norm"] = extract["Date"].apply(_normalise_date)
@@ -164,9 +163,9 @@ def step1_nutrient_enrichment(meals, extract):
         extract["Time consumed at"], format="%H:%M", errors="coerce"
     )
 
-    # Initialise nutrient columns on meals
-    for col in NUTRIENT_COLS:
-        meals[col] = np.nan
+    # Initialise nutrient columns on meals in one operation to avoid fragmentation.
+    nutrient_frame = pd.DataFrame(np.nan, index=meals.index, columns=NUTRIENT_COLS)
+    meals = pd.concat([meals, nutrient_frame], axis=1)
 
     n_success = 0
     n_fail = 0
@@ -828,7 +827,8 @@ def main():
     print(f"    Patient extract: {len(extract)} rows")
 
     # Sex mapping from source file
-    source = pd.read_csv(SOURCE_FILE, usecols=["Patient Id", "Sex"], low_memory=False)
+    source_extract = cfg.discover_latest_extract(cfg.SOURCE_DIR)
+    source = pd.read_csv(source_extract, usecols=["Patient Id", "Sex"], low_memory=False)
     sex_map = source.drop_duplicates("Patient Id").set_index("Patient Id")["Sex"].to_dict()
 
     # CGM files
@@ -938,6 +938,15 @@ def main():
             seen.add(col)
 
     df_out = df[all_ordered].copy()
+
+    missing_model_features, excluded_present = cfg.validate_feature_contract(df_out.columns)
+    if missing_model_features:
+        raise ValueError(
+            f"Missing configured model features in output schema: {missing_model_features}"
+        )
+    if excluded_present:
+        print("\n  Guardrail: intentionally excluded columns present (not used by train.py):")
+        print(f"    {', '.join(excluded_present)}")
 
     # ── Filter: keep only rows with computed iAUC ─────────────
     n_before = len(df_out)

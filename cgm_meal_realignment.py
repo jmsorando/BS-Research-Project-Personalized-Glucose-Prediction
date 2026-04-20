@@ -3,6 +3,7 @@
 import sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+import json
 import pandas as pd, numpy as np, warnings, os
 from scipy.signal import savgol_filter
 from pathlib import Path
@@ -11,11 +12,11 @@ from collections import Counter, defaultdict
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import config as cfg
 
 warnings.filterwarnings("ignore")
-BASE = Path(r"C:\Users\Jose Miguel Sorando\Documents\RP Cleaning 5")
-SRC  = BASE / "source"
-OUT  = BASE / "output"
+SRC = cfg.SOURCE_DIR
+OUT = cfg.OUTPUT_DATA_DIR
 
 # ── Config ──────────────────────────────────────────────────────────
 SMOOTHING_WINDOW        = 5
@@ -55,6 +56,16 @@ def _discover_files():
     if mapping_f is None: mapping_f = "MyFood24 ID Matched(Sheet1).csv"
     return diary_f, mapping_f
 
+
+def _persist_pipeline_inputs(diary_filename: str, mapping_filename: str):
+    """Persist stage inputs so downstream stages can reuse the same source file."""
+    payload = {
+        "diary_file": diary_filename,
+        "mapping_file": mapping_filename,
+    }
+    with open(cfg.PIPELINE_INPUTS_META, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
 def _get_tz_offset(diary_sub):
     raw = diary_sub["Item added at"].dropna().astype(str)
     offsets = []
@@ -91,6 +102,7 @@ def _parse_meal_time(row, d):
 # ═══════════════════════════════════════════════════════════════════
 def step1():
     diary_f, mapping_f = _discover_files()
+    _persist_pipeline_inputs(diary_f, mapping_f)
     print("="*72); print("STEP 1: Load ID Mapping and Discover CGM Files"); print("="*72)
     print(f"  Mapping: {mapping_f}")
 

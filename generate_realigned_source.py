@@ -14,21 +14,48 @@ Output: patient_extract1602_realigned.csv
 import sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+import json
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from datetime import datetime, timedelta
 from collections import defaultdict
+import config as cfg
 
-BASE = Path(r"C:\Users\Jose Miguel Sorando\Documents\RP Cleaning 5")
-SRC  = BASE / "source"
-OUT  = BASE / "output"
+SRC = cfg.SOURCE_DIR
+OUT = cfg.OUTPUT_DATA_DIR
+
+
+def _resolve_source_extract() -> Path:
+    """
+    Resolve the source patient_extract file.
+    Priority:
+      1) File persisted by Stage 1 in pipeline_inputs.json
+      2) Auto-discovered latest extract in source/
+    """
+    if cfg.PIPELINE_INPUTS_META.exists():
+        try:
+            with open(cfg.PIPELINE_INPUTS_META, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            diary_file = str(meta.get("diary_file", "")).strip()
+            if diary_file:
+                candidate = SRC / diary_file
+                if candidate.exists():
+                    return candidate
+        except Exception:
+            pass
+    return cfg.discover_latest_extract(SRC)
 
 
 def main():
     # ── Load data ─────────────────────────────────────────────────
+    source_path = _resolve_source_extract()
     print("Loading source CSV...")
-    source = pd.read_csv(SRC / "patient_extract1602.csv", low_memory=False)
+    source = pd.read_csv(source_path, low_memory=False)
+    # Consolidate internal blocks once to avoid fragmented-frame warnings
+    # when adding helper columns on wide extraction tables.
+    source = source.copy()
+    print(f"  Source file: {source_path.name}")
     print(f"  {len(source)} rows, {len(source.columns)} columns")
 
     print("Loading corrected_meal_times_ALL.csv...")
