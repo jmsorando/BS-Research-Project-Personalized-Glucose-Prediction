@@ -911,6 +911,9 @@ def _discover_nutrient_cols(diary):
 
 def main():
     global day_info_global, NUTRIENT_COLS
+    print("=" * 72)
+    print("  CGM-First Meal Time Re-Alignment Pipeline  v3")
+    print("=" * 72)
     mapping, diary = step1()
     NUTRIENT_COLS = _discover_nutrient_cols(diary)
     print(f"  {len(NUTRIENT_COLS)} nutrient columns detected")
@@ -972,8 +975,5 @@ def main():
 
 
 if __name__ == "__main__":
-    print("=" * 72)
-    print("  CGM-First Meal Time Re-Alignment Pipeline  v3")
-    print("=" * 72)
     main()
 

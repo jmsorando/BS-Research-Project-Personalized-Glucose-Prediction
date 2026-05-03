@@ -1,4 +1,4 @@
-"""Lightweight SHAP exports used by `train.py --shap` (summary + top-4 dependence)."""
+"""Lightweight SHAP exports used by ``rp-train --shap`` (summary + top-4 dependence)."""
 
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
 """
-train.py
-────────
-Main training script for the research_project package.
+Training CLI for the research_project package.
+
+Run: ``rp-train`` or ``python -m research_project.training.train`` (after ``pip install -e .``).
 """
 
 import argparse

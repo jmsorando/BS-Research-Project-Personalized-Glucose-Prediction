@@ -1,11 +1,10 @@
 """
-shap_analysis.py
-────────────────
 Comprehensive SHAP analysis for the iAUC XGBoost model.
-Produces 10 analyses with plots and summary tables.
+Produces summary tables plus figures 01–04 (CV fold stability is CSV-only, between figs 03 and 04).
 
-Run from repo root:
-    python shap_analysis.py
+After `pip install -e .`:
+    rp-shap-report
+    # or: python -m research_project.analysis.shap_analysis
 """
 
 import sys, io, unittest.mock
@@ -204,15 +203,15 @@ def main() -> None:
         expected_value = float(expected_value[0]) if len(expected_value) == 1 else float(np.mean(expected_value))
     expected_value = float(expected_value)
 
-    preds = model.predict(X)
-    residuals = y.values - preds  # type: ignore[union-attr]
-
     print(f"  SHAP matrix shape: {shap_vals.shape}")
     print(f"  Expected value (baseline): {expected_value:.2f}")
 
 
     feature_groups = [get_feature_group(f) for f in cfg.ALL_FEATURES]
 
+    mean_abs_shap = np.abs(shap_vals).mean(axis=0)
+    feat_importance = pd.Series(mean_abs_shap, index=cfg.ALL_FEATURES)
+    dc_all = cfg.DC_RAW + cfg.DC_RATIOS
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ANALYSIS 1 — Beeswarm Summary (Top 20)
@@ -235,48 +234,11 @@ def main() -> None:
 
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # ANALYSIS 2 — Group-Level Bar Chart
+    # ANALYSIS 2 — Dependence Plots for Top 4 Features → 02_*.png
     # ═══════════════════════════════════════════════════════════════════════════
 
     print("\n" + "=" * 60)
-    print("ANALYSIS 2 — Group-Level SHAP Bar Chart")
-    print("=" * 60)
-
-    mean_abs_shap = np.abs(shap_vals).mean(axis=0)
-    feat_importance = pd.Series(mean_abs_shap, index=cfg.ALL_FEATURES)
-
-    group_importance = {
-        "G (glycaemic)":      feat_importance[cfg.G_COLS].sum(),
-        "Dc (diet compo)":    feat_importance[cfg.DC_RAW + cfg.DC_RATIOS].sum(),
-        "Dt (temporal)":      feat_importance[cfg.DT_COLS].sum(),
-        "P (participant)":    feat_importance[cfg.P_COLS].sum(),
-        "I (interactions)":   feat_importance[cfg.INTERACTION_COLS].sum(),
-    }
-
-    gi = pd.Series(group_importance).sort_values()
-    colours = [COLOUR.get(k.split(" ")[0], "#888") for k in gi.index]
-
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.barh(gi.index, gi.values, color=colours)
-    ax.set_xlabel("Sum of mean |SHAP| (mmol·min/L)")
-    ax.set_title("Feature Group Importance — Sum of Mean |SHAP|")
-    for i, (name, val) in enumerate(gi.items()):
-        ax.text(val + gi.max() * 0.01, i, f"{val:.2f}", va="center", fontsize=9)
-    plt.tight_layout()
-    p = shap_plot_dir / "02_group_shap_bar.png"
-    plt.savefig(p, dpi=150, bbox_inches="tight")
-    plt.close()
-    print(f"  Saved: {p}")
-    for name, val in sorted(group_importance.items(), key=lambda x: -x[1]):
-        print(f"    {name}: {val:.3f}")
-
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # ANALYSIS 3 — Dependence Plots for Top 4 Features
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    print("\n" + "=" * 60)
-    print("ANALYSIS 3 — Dependence Plots (Top 4)")
+    print("ANALYSIS 2 — Dependence Plots (Top 4)")
     print("=" * 60)
 
     top4_dep = feat_importance.nlargest(4).index.tolist()
@@ -297,7 +259,7 @@ def main() -> None:
                 cb_ax.set_ylabel(f"{label} ({cb_unit})")
     plt.suptitle("SHAP Dependence Plots — Top 4 Features", fontsize=13, y=1.01)
     plt.tight_layout()
-    p = shap_plot_dir / "03_dependence_top4.png"
+    p = shap_plot_dir / "02_dependence_top4.png"
     plt.savefig(p, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"  Saved: {p}")
@@ -305,119 +267,11 @@ def main() -> None:
 
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # ANALYSIS 4 — Waterfall Plots for Representative Meals
+    # ANALYSIS 3 — Within vs Across Participant SHAP Similarity → 03_*.png
     # ═══════════════════════════════════════════════════════════════════════════
 
     print("\n" + "=" * 60)
-    print("ANALYSIS 4 — Waterfall Plots")
-    print("=" * 60)
-
-    # Select 4 representative meals
-    high_iauc_well = None
-    threshold_high = y.mean() + 1.5 * y.std()
-    threshold_low = y.mean() - 1.0 * y.std()
-
-    # High iAUC, well predicted: small |residual| among high-iAUC meals
-    high_mask = y > threshold_high
-    if high_mask.any():
-        high_indices = y[high_mask].index
-        abs_res_high = np.abs(residuals[high_indices])
-        high_iauc_well = high_indices[np.argmin(abs_res_high)]
-    else:
-        high_iauc_well = y.idxmax()
-
-    # Low iAUC, well predicted: small |residual| among low-iAUC meals
-    low_mask = y < threshold_low
-    if low_mask.any():
-        low_indices = y[low_mask].index
-        abs_res_low = np.abs(residuals[low_indices])
-        low_iauc_well = low_indices[np.argmin(abs_res_low)]
-    else:
-        low_iauc_well = y.idxmin()
-
-    # High iAUC, badly predicted: largest positive residual
-    high_iauc_bad = np.argmax(residuals)
-
-    # Average meal: closest to mean
-    avg_meal = (y - y.mean()).abs().idxmin()
-
-    meal_cases = {
-        "high_iAUC_well_predicted": high_iauc_well,
-        "low_iAUC_well_predicted":  low_iauc_well,
-        "high_iAUC_badly_predicted": high_iauc_bad,
-        "average_meal":             avg_meal,
-    }
-
-    for label, idx in meal_cases.items():
-        expl = shap.Explanation(
-            values=shap_vals[idx],
-            base_values=expected_value,
-            data=X.iloc[idx].values,  # type: ignore[union-attr]
-            feature_names=list(cfg.ALL_FEATURES),
-        )
-        fig = plt.figure(figsize=(10, 8))
-        shap.waterfall_plot(expl, max_display=15, show=False)
-        plt.gca().set_xlabel("SHAP value (mmol·min/L)")
-        plt.title(f"Waterfall — {label}\n"
-                  f"actual={y.iloc[idx]:.1f}, pred={preds[idx]:.1f}", fontsize=11)  # type: ignore[union-attr]
-        plt.tight_layout()
-        fname = f"04_waterfall_{label}.png"
-        p = shap_plot_dir / fname
-        plt.savefig(p, dpi=150, bbox_inches="tight")
-        plt.close()
-        print(f"  Saved: {p}  (idx={idx}, actual={y.iloc[idx]:.1f}, pred={preds[idx]:.1f})")  # type: ignore[union-attr]
-
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # ANALYSIS 5 — CHO × Baseline Glucose Interaction
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    print("\n" + "=" * 60)
-    print("ANALYSIS 5 — CHO × Baseline Glucose Interaction")
-    print("=" * 60)
-
-    # CHO coloured by baseline_glucose
-    if "CHO" in cfg.ALL_FEATURES and "baseline_glucose_mmol" in cfg.ALL_FEATURES:
-        fig, ax = plt.subplots(figsize=(8, 6))
-        shap.dependence_plot(
-            "CHO", shap_vals, X,
-            interaction_index="baseline_glucose_mmol",
-            ax=ax, show=False,
-        )
-        ax.set_ylabel("SHAP value (mmol·min/L)")
-        ax.set_title("CHO SHAP value coloured by baseline glucose\n"
-                     "(warm = high baseline → amplified carb response?)", fontsize=11)
-        plt.tight_layout()
-        p = shap_plot_dir / "05_interaction_CHO_baseline.png"
-        plt.savefig(p, dpi=150, bbox_inches="tight")
-        plt.close()
-        print(f"  Saved: {p}")
-
-        # Mirror: baseline_glucose coloured by CHO
-        fig, ax = plt.subplots(figsize=(8, 6))
-        shap.dependence_plot(
-            "baseline_glucose_mmol", shap_vals, X,
-            interaction_index="CHO",
-            ax=ax, show=False,
-        )
-        ax.set_ylabel("SHAP value (mmol·min/L)")
-        ax.set_title("baseline_glucose_mmol SHAP value coloured by CHO\n"
-                     "(warm = high CHO → amplified glucose effect?)", fontsize=11)
-        plt.tight_layout()
-        p = shap_plot_dir / "05_interaction_baseline_CHO.png"
-        plt.savefig(p, dpi=150, bbox_inches="tight")
-        plt.close()
-        print(f"  Saved: {p}")
-    else:
-        print("  WARNING: CHO or baseline_glucose_mmol not in ALL_FEATURES — skipping")
-
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # ANALYSIS 6 — Within vs Across Participant SHAP Similarity
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    print("\n" + "=" * 60)
-    print("ANALYSIS 6 — Participant SHAP Similarity (Overfitting Check)")
+    print("ANALYSIS 3 — Participant SHAP Similarity (Overfitting Check)")
     print("=" * 60)
 
     # Sample up to 20 meals per participant for speed
@@ -470,7 +324,7 @@ def main() -> None:
     ax.set_title("SHAP Profile Similarity: Within vs Across Participants")
     ax.legend()
     plt.tight_layout()
-    p = shap_plot_dir / "06_within_vs_across_shap_similarity.png"
+    p = shap_plot_dir / "03_within_vs_across_shap_similarity.png"
     plt.savefig(p, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"  Saved: {p}")
@@ -484,40 +338,11 @@ def main() -> None:
 
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # ANALYSIS 7 — Dc-Only Model SHAP
+    # ANALYSIS 4 — SHAP Stability Across CV Folds (CSV only)
     # ═══════════════════════════════════════════════════════════════════════════
 
     print("\n" + "=" * 60)
-    print("ANALYSIS 7 — Dc-Only Model SHAP")
-    print("=" * 60)
-
-    dc_feats = cfg.DC_RAW + cfg.DC_RATIOS
-    model_dc = xgb.XGBRegressor(**train_params)
-    model_dc.fit(X[dc_feats], y)
-
-    explainer_dc = shap.TreeExplainer(model_dc)
-    shap_vals_dc = explainer_dc.shap_values(X[dc_feats])
-
-    fig, ax = plt.subplots(1, 1, figsize=(9, 12))
-
-    plt.sca(ax)
-    shap.summary_plot(shap_vals_dc, X[dc_feats], max_display=25, show=False)
-    ax.set_xlabel("SHAP value (mmol·min/L)")
-    ax.set_title("SHAP — Dc-only model", fontsize=11)
-
-    plt.tight_layout()
-    p = shap_plot_dir / "07_dc_only_shap.png"
-    plt.savefig(p, dpi=150, bbox_inches="tight")
-    plt.close()
-    print(f"  Saved: {p}")
-
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # ANALYSIS 8 — SHAP Stability Across CV Folds
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    print("\n" + "=" * 60)
-    print("ANALYSIS 8 — SHAP Stability Across CV Folds")
+    print("ANALYSIS 4 — SHAP Stability Across CV Folds")
     print("=" * 60)
 
     gkf = GroupKFold(n_splits=cfg.N_FOLDS)
@@ -543,50 +368,11 @@ def main() -> None:
 
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # ANALYSIS 9 — Dc SHAP by Meal Type
+    # ANALYSIS 5 — SHAP Correlation Heatmap (Dc Features) → 04_*.png
     # ═══════════════════════════════════════════════════════════════════════════
 
     print("\n" + "=" * 60)
-    print("ANALYSIS 9 — Dc SHAP Importance by Meal Type")
-    print("=" * 60)
-
-    # NOTE: is_breakfast / is_lunch / is_dinner / is_snack were removed from DT_COLS
-    # as model features but are retained here as stratification masks because they
-    # still exist in the raw feature_matrix.csv.
-    meal_types = {
-        "Breakfast": df["is_breakfast"] == 1,
-        "Lunch":     df["is_lunch"] == 1,
-        "Dinner":    df["is_dinner"] == 1,
-        "Snack":     df["is_snack"] == 1,
-    }
-
-    dc_all = cfg.DC_RAW + cfg.DC_RATIOS
-    dc_feats_idx = [cfg.ALL_FEATURES.index(f) for f in dc_all if f in cfg.ALL_FEATURES]
-
-    fig, axes = plt.subplots(1, 4, figsize=(20, 5), sharey=True)
-    for ax, (label, mask) in zip(axes, meal_types.items()):
-        sv_sub = shap_vals[mask.values]  # type: ignore[union-attr]
-        dc_importance = np.abs(sv_sub[:, dc_feats_idx]).mean(axis=0)
-        dc_names = [cfg.ALL_FEATURES[i] for i in dc_feats_idx]
-        top_idx = np.argsort(dc_importance)[-10:]
-        ax.barh([dc_names[i] for i in top_idx], dc_importance[top_idx], color=COLOUR["Dc"])
-        ax.set_title(f"{label}\n(n={mask.sum()})")
-        ax.set_xlabel("Mean |SHAP| (mmol·min/L)")
-    axes[0].set_ylabel("Dc features")
-    plt.suptitle("Diet Composition SHAP Importance by Meal Type", fontsize=13)
-    plt.tight_layout()
-    p = shap_plot_dir / "09_dc_shap_by_meal_type.png"
-    plt.savefig(p, dpi=150, bbox_inches="tight")
-    plt.close()
-    print(f"  Saved: {p}")
-
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # ANALYSIS 10 — SHAP Correlation Heatmap (Dc Features)
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    print("\n" + "=" * 60)
-    print("ANALYSIS 10 — SHAP Value Correlation (Dc Features)")
+    print("ANALYSIS 5 — SHAP Value Correlation (Dc Features)")
     print("=" * 60)
 
     shap_corr = pd.DataFrame(shap_vals, columns=cfg.ALL_FEATURES).corr()
@@ -598,7 +384,7 @@ def main() -> None:
                 vmin=-1, vmax=1, annot=False, ax=ax, linewidths=0.3)
     ax.set_title("SHAP Value Correlation — Dc Features", fontsize=12)
     plt.tight_layout()
-    p = shap_plot_dir / "10_shap_correlation_dc.png"
+    p = shap_plot_dir / "04_shap_correlation_dc.png"
     plt.savefig(p, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"  Saved: {p}")

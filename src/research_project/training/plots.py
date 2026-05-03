@@ -1,7 +1,7 @@
 """
-plots.py
---------
 Publication figures and out-of-fold diagnostics.
+
+Run: ``rp-plots`` or ``python -m research_project.training.plots`` (after ``pip install -e .``).
 """
 
 import argparse

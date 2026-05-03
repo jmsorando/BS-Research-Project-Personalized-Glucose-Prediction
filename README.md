@@ -31,7 +31,7 @@ flowchart LR
     B --> E["Meal–excursion\nmatching"]
     D --> E
     E --> F["corrected_meal_times_ALL.csv"]
-    F --> G["Feature engineering\n(build_feature_matrix.py)"]
+    F --> G["Feature engineering\n(rp-build-feature-matrix)"]
     G --> H["feature_matrix.csv\n(2,228 rows × 96 cols)"]
     H --> I["XGBoost\n(GroupKFold CV)"]
     I --> J["CV metrics\n+ SHAP + ablation"]
@@ -44,20 +44,13 @@ flowchart LR
 ```
 RP Cleaning 5/
 │
-├── bootstrap_path.py                # Shared `sys.path` setup for root scripts (adds `src/`)
-├── config.py                        # Shim: re-exports `src/research_project/config.py` (canonical settings)
-├── train.py                         # Training entry point (CLI: --tune, --shap, --ablation, --all)
-├── shap_analysis.py                 # Runs full SHAP report (`research_project.analysis.shap_analysis.main`)
-├── build_feature_matrix.py          # Stage 3: feature engineering + iAUC computation
-├── cgm_meal_realignment.py          # Stage 1: CGM-driven meal time correction
-├── generate_realigned_source.py     # Stage 2: apply corrections to raw food diary
-├── plots.py                         # OOF / training diagnostic plots (`research_project.training.plots`)
-├── requirements.txt                 # Python dependencies
+├── pyproject.toml                   # Package metadata, dependencies, CLI entry points (`rp-*`)
+├── requirements.txt                 # Editable install: `pip install -r requirements.txt` → `-e .`
 │
 ├── src/research_project/            # Python package (import as `research_project`)
 │   ├── config.py                    # Paths, feature column lists, model defaults
 │   ├── data_pipeline/               # realign, build_realigned_source, feature_matrix
-│   ├── training/                    # train.py, plots
+│   ├── training/                    # train, plots
 │   └── analysis/                    # shap_analysis, shap_train_exports
 │
 ├── source/                          # Raw input data (do not modify)
@@ -77,8 +70,8 @@ RP Cleaning 5/
 ├── training_outputs/                # ML run artifacts (may be committed or regenerated locally)
 │   ├── models/                      # e.g. final_model.ubj, optuna_study.pkl
 │   ├── results/                     # CV metrics, SHAP CSVs, best_params.json
-│   └── plots/                       # ablation, OOF scatter; `shap/` = full report from `shap_analysis.py`;
-│                                    # `train.py --shap` also writes flat `shap_summary.png` + `shap_dependence_top4.png`
+│   └── plots/                       # ablation, OOF scatter; `shap/` = full report from `rp-shap-report`;
+│                                    # `rp-train --shap` also writes flat `shap_summary.png` + `shap_dependence_top4.png`
 │
 └── docs/
     ├── audit_report.md              # Pipeline integrity audit
@@ -91,11 +84,14 @@ RP Cleaning 5/
 
 ### Prerequisites
 
-Python 3.10+ is required. Install dependencies:
+Python 3.10+ is required. From the repository root, install the package in editable mode (dependencies come from `pyproject.toml`):
 
 ```bash
 pip install -r requirements.txt
+# equivalent: pip install -e .
 ```
+
+This exposes console commands `rp-train`, `rp-realign`, etc., and allows `python -m research_project...` invocations.
 
 ### Local CLI
 
@@ -103,29 +99,32 @@ Ensure `output/feature_matrix.csv` is present (see [Data Availability](#data-ava
 
 ```bash
 # Baseline 10-fold CV only (~4 min)
-python train.py
+rp-train
 
 # Baseline + Optuna hyperparameter tuning (~20–40 min)
-python train.py --tune
+rp-train --tune
 
 # Baseline + SHAP analysis
-python train.py --shap
+rp-train --shap
 
 # Baseline + feature-group ablation study
-python train.py --ablation
+rp-train --ablation
 
 # Full pipeline: tune + SHAP + ablation (~90–120 min)
-python train.py --all
+rp-train --all
 ```
+
+Equivalent module form: `python -m research_project.training.train [--tune] ...`
 
 All outputs are written to `training_outputs/`.
 
 ### Standalone SHAP Analysis
 
-For the comprehensive 10-analysis SHAP suite (requires a trained model in `training_outputs/models/`):
+For the extended SHAP suite — figures `01`–`04` under `training_outputs/plots/shap/`, plus CSV summaries (requires a trained model in `training_outputs/models/`):
 
 ```bash
-python shap_analysis.py
+rp-shap-report
+# or: python -m research_project.analysis.shap_analysis
 ```
 
 ### Upstream Pipeline (Data Preparation)
@@ -133,10 +132,12 @@ python shap_analysis.py
 If you need to rebuild `feature_matrix.csv` from raw data, run the three stages in order:
 
 ```bash
-python cgm_meal_realignment.py       # Stage 1: CGM meal realignment (~2 min)
-python generate_realigned_source.py  # Stage 2: realigned source diary (~10 sec)
-python build_feature_matrix.py       # Stage 3: feature matrix + iAUC (~3 min)
+rp-realign                  # Stage 1: CGM meal realignment (~2 min)
+rp-build-realigned-source   # Stage 2: realigned source diary (~10 sec)
+rp-build-feature-matrix     # Stage 3: feature matrix + iAUC (~3 min)
 ```
+
+Module form: `python -m research_project.data_pipeline.realign`, etc.
 
 Stage 1 auto-discovers the latest `patient_extract*.csv` in `source/` and writes
 the selected filename to `output/pipeline_inputs.json`. Stage 2 reuses that same
@@ -158,10 +159,10 @@ The feature matrix contains 96 columns total. Of those, 87 are model features or
 | Interactions | **I** | 10 | Engineered cross-terms: CHO × baseline glucose, CHO × fibre, MAGE × baseline, etc. |
 | **Leakage** | -- | 6 | **NEVER use as features:** iAUC_mmol_h, excursion_rise_mmol, peak_glucose_mmol, etc. |
 
-Feature lists are defined in `config.py` — the single source of truth for all column names.
+Feature lists are defined in `src/research_project/config.py` — import `research_project.config` as the single source of truth for all column names.
 Some engineered columns are intentionally excluded from model training to reduce
 participant-specific bias and contextual over-conditioning; see
-`config.INTENTIONALLY_EXCLUDED_MODEL_COLS`.
+`research_project.config.INTENTIONALLY_EXCLUDED_MODEL_COLS`.
 
 ---
 
@@ -176,8 +177,8 @@ participant-specific bias and contextual over-conditioning; see
 | Metrics | MAE, RMSE, R² |
 | Row filter | `iauc_status == "ok"` → ~2,215 usable rows from 2,228 total |
 | Encoding | `sex`: Male → 0, Female → 1 (only manual encoding; XGBoost handles NaN natively) |
-| Baseline hyperparams | Defined in `config.BASELINE_PARAMS` |
-| Optuna HPO | 100 trials, TPE sampler; search space in `config.OPTUNA_SEARCH_SPACE` |
+| Baseline hyperparams | Defined in `research_project.config.BASELINE_PARAMS` |
+| Optuna HPO | 100 trials, TPE sampler; search space in `research_project.config.OPTUNA_SEARCH_SPACE` |
 
 ### CLI Flags
 
@@ -193,7 +194,7 @@ participant-specific bias and contextual over-conditioning; see
 ### Pipeline Steps
 
 1. **Load & filter** — read `feature_matrix.csv`, keep rows where `iauc_status == "ok"`, encode `sex`
-2. **Baseline CV** — 10-fold GroupKFold with `config.BASELINE_PARAMS`
+2. **Baseline CV** — 10-fold GroupKFold with `research_project.config.BASELINE_PARAMS`
 3. **Tuning** *(optional)* — Optuna Bayesian search, save best params to `best_params.json`
 4. **Final model** — retrain on all data with the active params, save to `final_model.ubj`
 5. **SHAP** *(optional)* — TreeExplainer values, beeswarm + dependence plots
@@ -228,7 +229,7 @@ Diet composition (Dc) and temporal diet (Dt) features perform worse than predict
 | `source/` (CGM + diary) | Yes | Raw input data for the upstream pipeline |
 | `training_outputs/` | Partially | Model, SHAP values, and plots are generated at runtime |
 
-The feature matrix and source data are included in this repository. If you only need to run the ML pipeline (`train.py`), you need `output/feature_matrix.csv`. To rebuild it from scratch, you need the full `source/` directory.
+The feature matrix and source data are included in this repository. If you only need to run the ML pipeline (`rp-train`), you need `output/feature_matrix.csv`. To rebuild it from scratch, you need the full `source/` directory.
 
 ---
 
@@ -242,7 +243,7 @@ The feature matrix and source data are included in this repository. If you only 
 
 - [`docs/audit_report.md`](docs/audit_report.md) — Pipeline integrity audit (file checks, schema validation)
 - [`docs/dc_pruning_report.md`](docs/dc_pruning_report.md) — Diet composition feature collinearity analysis (VIF, SHAP ranking, pruning decisions)
-- [`config.py`](config.py) — All feature lists, hyperparameters, paths, and search spaces in one place
+- [`src/research_project/config.py`](src/research_project/config.py) — Feature lists, hyperparameters, paths, and search spaces
 
 ---
 
