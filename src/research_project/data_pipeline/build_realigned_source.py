@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from rp_glucose import config as cfg
+from research_project import config as cfg
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 

@@ -1,14 +1,8 @@
-"""Compatibility entrypoint: delegates to `src/rp_glucose/training/plots.py`."""
+"""Compatibility entrypoint: delegates to `src/research_project/training/plots.py`."""
 
-from pathlib import Path
-import sys
+import bootstrap_path  # noqa: E402
 
-REPO_ROOT = Path(__file__).resolve().parent
-SRC_DIR = REPO_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
-
-from rp_glucose.training.plots import main
+from research_project.training.plots import main
 
 
 if __name__ == "__main__":

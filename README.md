@@ -44,13 +44,21 @@ flowchart LR
 ```
 RP Cleaning 5/
 │
-├── config.py                        # Single source of truth: paths, feature lists, hyperparams
+├── bootstrap_path.py                # Shared `sys.path` setup for root scripts (adds `src/`)
+├── config.py                        # Shim: re-exports `src/research_project/config.py` (canonical settings)
 ├── train.py                         # Training entry point (CLI: --tune, --shap, --ablation, --all)
-├── shap_analysis.py                 # Comprehensive 10-analysis SHAP pipeline (standalone)
+├── shap_analysis.py                 # Runs full SHAP report (`research_project.analysis.shap_analysis.main`)
 ├── build_feature_matrix.py          # Stage 3: feature engineering + iAUC computation
 ├── cgm_meal_realignment.py          # Stage 1: CGM-driven meal time correction
 ├── generate_realigned_source.py     # Stage 2: apply corrections to raw food diary
+├── plots.py                         # OOF / training diagnostic plots (`research_project.training.plots`)
 ├── requirements.txt                 # Python dependencies
+│
+├── src/research_project/            # Python package (import as `research_project`)
+│   ├── config.py                    # Paths, feature column lists, model defaults
+│   ├── data_pipeline/               # realign, build_realigned_source, feature_matrix
+│   ├── training/                    # train.py, plots
+│   └── analysis/                    # shap_analysis, shap_train_exports
 │
 ├── source/                          # Raw input data (do not modify)
 │   ├── cgm_data/                    # 95 per-participant CGM files (Dexcom)
@@ -66,18 +74,11 @@ RP Cleaning 5/
 │   ├── plots/                       # Per-participant CGM overlay plots + global summary
 │   └── results/                     # Pruning analysis outputs
 │
-├── training_outputs/                # Created at runtime by train.py
-│   ├── models/
-│   │   ├── final_model.ubj          # Trained XGBoost model
-│   │   └── optuna_study.pkl         # Optuna study object
-│   ├── results/
-│   │   ├── results.csv              # Baseline + tuned + ablation CV scores
-│   │   ├── best_params.json         # Best Optuna hyperparameters
-│   │   ├── shap_values.csv          # Raw SHAP values (N × n_features)
-│   │   └── shap_summary_table.csv   # SHAP feature importance ranking
-│   └── plots/
-│       ├── ablation.png             # Feature-group ablation bar chart
-│       └── shap/                    # 10 SHAP analysis figures
+├── training_outputs/                # ML run artifacts (may be committed or regenerated locally)
+│   ├── models/                      # e.g. final_model.ubj, optuna_study.pkl
+│   ├── results/                     # CV metrics, SHAP CSVs, best_params.json
+│   └── plots/                       # ablation, OOF scatter; `shap/` = full report from `shap_analysis.py`;
+│                                    # `train.py --shap` also writes flat `shap_summary.png` + `shap_dependence_top4.png`
 │
 └── docs/
     ├── audit_report.md              # Pipeline integrity audit
@@ -185,7 +186,7 @@ participant-specific bias and contextual over-conditioning; see
 | *(none)* | Baseline 10-fold CV + train final model | ~4 min |
 | `--tune` | + Optuna hyperparameter optimisation (100 trials) | ~40–80 min |
 | `--shap` | + SHAP summary and top-4 dependence plots | ~5 min |
-| `--ablation` | + Feature-group ablation study (10 subsets) | ~15 min |
+| `--ablation` | + Feature-group ablation (all 31 non-empty combos of Dc, G, Dt, P, I) | ~15–30 min |
 | `--all` | All of the above | ~90–120 min |
 | `--data PATH` | Override the default `feature_matrix.csv` path | — |
 
@@ -196,7 +197,7 @@ participant-specific bias and contextual over-conditioning; see
 3. **Tuning** *(optional)* — Optuna Bayesian search, save best params to `best_params.json`
 4. **Final model** — retrain on all data with the active params, save to `final_model.ubj`
 5. **SHAP** *(optional)* — TreeExplainer values, beeswarm + dependence plots
-6. **Ablation** *(optional)* — CV each feature-group combination, produce bar chart
+6. **Ablation** *(optional)* — CV for every non-empty subset of the five feature blocks (31 rows), bar chart + presence matrix + `ablation_by_feature_group.csv`
 
 ---
 

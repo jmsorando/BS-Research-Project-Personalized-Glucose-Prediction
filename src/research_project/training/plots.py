@@ -16,7 +16,7 @@ from scipy import stats
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import GroupKFold
 
-from rp_glucose import config as cfg
+from research_project import config as cfg
 
 UNIT = "mmol·min/L"
 

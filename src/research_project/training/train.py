@@ -1,15 +1,17 @@
 """
 train.py
 ────────
-Main training script for the rp_glucose package.
+Main training script for the research_project package.
 """
 
 import argparse
 import io
 import json
+from itertools import combinations
 from pathlib import Path
 
 import joblib
+import matplotlib.pyplot as plt
 import numpy as np
 import optuna
 import pandas as pd
@@ -17,7 +19,7 @@ import xgboost as xgb
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import GroupKFold
 
-from rp_glucose import config as cfg
+from research_project import config as cfg
 
 if __import__("sys").stdout.encoding and __import__("sys").stdout.encoding.lower() != "utf-8":
     sys_mod = __import__("sys")
@@ -149,85 +151,179 @@ def train_final(X, y, params: dict) -> xgb.XGBRegressor:
 
 
 def run_shap(model, X):
-    import sys
-    import unittest.mock
-
-    for mod in [
-        "numba",
-        "numba.core",
-        "numba.core.decorators",
-        "numba.stencils",
-        "numba.stencils.stencil",
-        "numba.core.ir_utils",
-        "numba.core.extending",
-        "numba.core.pythonapi",
-        "numba.typed",
-    ]:
-        if mod not in sys.modules:
-            sys.modules[mod] = unittest.mock.MagicMock()
     try:
-        import shap
+        from research_project.analysis.shap_train_exports import run_train_shap_exports
+
+        return run_train_shap_exports(model, X, cfg.PLOT_DIR, cfg.RESULTS_DIR)
     except Exception as e:
-        print(f"[shap]  SKIPPED — import failed: {e}")
+        print(f"[shap]  SKIPPED — {e}")
         return None
 
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
 
-    print("[shap]  computing SHAP values ...")
-    explainer = shap.TreeExplainer(model)
-    shap_vals = explainer.shap_values(X)
+def _feature_group_blocks():
+    """Ordered codes match README: Dc, G, Dt, P, I."""
+    return (
+        ("Dc", cfg.DC_RAW + cfg.DC_RATIOS),
+        ("G", cfg.G_COLS),
+        ("Dt", cfg.DT_COLS),
+        ("P", cfg.P_COLS),
+        ("I", cfg.INTERACTION_COLS),
+    )
 
-    pd.DataFrame(shap_vals, columns=X.columns).to_csv(cfg.RESULTS_DIR / "shap_values.csv", index=False)
-    shap.summary_plot(shap_vals, X, max_display=20, show=False, cmap=plt.cm.coolwarm)
-    plt.gca().set_xlabel("SHAP value (mmol·min/L)")
-    plt.tight_layout()
-    p = cfg.PLOT_DIR / "shap_summary.png"
-    plt.savefig(p, dpi=150, bbox_inches="tight")
-    plt.close()
-    print(f"[shap]  saved -> {p}")
 
-    mean_abs = pd.Series(np.abs(shap_vals).mean(axis=0), index=X.columns)
-    top4 = mean_abs.nlargest(4).index.tolist()
-    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
-    for ax, feat in zip(axes.flat, top4):
-        shap.dependence_plot(feat, shap_vals, X, ax=ax, show=False)
-        ax.set_ylabel("SHAP value (mmol·min/L)")
-    plt.tight_layout()
-    p = cfg.PLOT_DIR / "shap_dependence_top4.png"
-    plt.savefig(p, dpi=150, bbox_inches="tight")
-    plt.close()
-    print(f"[shap]  saved -> {p}")
-    return shap_vals
+def plot_ablation_presence_matrix(
+    results: pd.DataFrame,
+    out_path: Path,
+    n_samples: int,
+) -> None:
+    """
+    Matrix-style ablation table: presence dots per feature block, # features, R² (CV mean).
+    Rows sorted by R² descending (best at top). Mirrors common ablation summary figures.
+    """
+    matrix_order = ["G", "Dc", "Dt", "P", "I"]
+    col_headers = [
+        "Glycemic\n(G)",
+        "Diet comp.\n(Dc)",
+        "Diet temporal\n(Dt)",
+        "Personal\n(P)",
+        "Interactions\n(I)",
+    ]
+
+    df = results.sort_values("R2_mean", ascending=False).reset_index(drop=True)
+    n_rows = len(df)
+    text_color = "#1a1a1a"
+
+    fig_w, fig_h = 10.0, max(6.0, 0.32 * n_rows + 2.4)
+    fig = plt.figure(figsize=(fig_w, fig_h))
+    ax = fig.add_axes([0.07, 0.06, 0.68, 0.78])
+
+    dx = 1.0
+    x_dots = np.arange(len(matrix_order), dtype=float) * dx
+    present_fc = "#41ab5d"
+    present_ec = "#238b45"
+    absent_fc = "#e8e8e8"
+    absent_ec = "#bdbdbd"
+
+    for i, (_, row) in enumerate(df.iterrows()):
+        y = float(n_rows - 1 - i)
+        parts = [p.strip() for p in str(row["label"]).split(" + ")]
+        active = set(parts)
+
+        ax.hlines(y, x_dots[0], x_dots[-1], colors="#f3f3f3", linewidths=5, zorder=0)
+
+        for xi, code in zip(x_dots, matrix_order):
+            if code in active:
+                ax.scatter(
+                    xi,
+                    y,
+                    s=130,
+                    c=present_fc,
+                    edgecolors=present_ec,
+                    linewidths=0.9,
+                    zorder=2,
+                )
+            else:
+                ax.scatter(
+                    xi,
+                    y,
+                    s=130,
+                    c=absent_fc,
+                    edgecolors=absent_ec,
+                    linewidths=0.6,
+                    zorder=1,
+                )
+
+        ordered = [c for c in matrix_order if c in active]
+        latex = "$" + "+".join(ordered) + "$"
+        ax.text(x_dots[0] - 0.65, y, latex, ha="right", va="center", fontsize=9)
+
+    x_nf = float(x_dots[-1] + 1.2)
+    x_r2 = float(x_dots[-1] + 2.55)
+
+    ax.text(x_nf, n_rows + 0.42, "# features", ha="center", fontsize=8, fontweight="bold")
+    ax.text(x_r2, n_rows + 0.42, r"$R^2$ (mean CV)", ha="center", fontsize=8, fontweight="bold")
+
+    for i, (_, row) in enumerate(df.iterrows()):
+        y = float(n_rows - 1 - i)
+        vnf = int(row["n_features"])
+        ax.text(
+            x_nf,
+            y,
+            str(vnf),
+            ha="center",
+            va="center",
+            fontsize=9,
+            color=text_color,
+            fontweight="bold",
+        )
+        vr2 = float(row["R2_mean"])
+        ax.text(
+            x_r2,
+            y,
+            f"{vr2:.3f}",
+            ha="center",
+            va="center",
+            fontsize=9,
+            color=text_color,
+            fontweight="bold",
+        )
+
+    ax.set_xlim(x_dots[0] - 2.4, x_r2 + 0.45)
+    ax.set_ylim(-0.75, n_rows + 0.55)
+    ax.set_xticks(x_dots)
+    ax.set_xticklabels(col_headers, fontsize=8)
+    ax.tick_params(left=False, labelleft=False, bottom=True)
+    for s in ax.spines.values():
+        s.set_visible(False)
+
+    fig.text(
+        0.07,
+        0.935,
+        f"Same cohort for all rows: {n_samples:,} meals (GroupKFold CV by participant)",
+        fontsize=9,
+        style="italic",
+        ha="left",
+        va="top",
+    )
+
+    leg = fig.add_axes([0.80, 0.38, 0.18, 0.12])
+    leg.set_axis_off()
+    leg.scatter([0.06], [0.72], s=70, c=present_fc, edgecolors=present_ec, transform=leg.transAxes)
+    leg.text(0.14, 0.72, "Feature set present", transform=leg.transAxes, va="center", fontsize=8)
+    leg.scatter([0.06], [0.28], s=70, c=absent_fc, edgecolors=absent_ec, transform=leg.transAxes)
+    leg.text(0.14, 0.28, "Feature set absent", transform=leg.transAxes, va="center", fontsize=8)
+
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 
 def ablation(X_full, y, groups, params: dict) -> pd.DataFrame:
-    import matplotlib.pyplot as plt
+    blocks = _feature_group_blocks()
+    group_order = [code for code, _ in blocks]
+    code_to_feats = dict(blocks)
 
-    feature_sets = {
-        "Dc only": cfg.DC_RAW + cfg.DC_RATIOS,
-        "G only": cfg.G_COLS,
-        "Dt only": cfg.DT_COLS,
-        "Dc + G": cfg.DC_RAW + cfg.DC_RATIOS + cfg.G_COLS,
-        "Dc + Dt": cfg.DC_RAW + cfg.DC_RATIOS + cfg.DT_COLS,
-        "G + Dt": cfg.G_COLS + cfg.DT_COLS,
-        "Dc + G + Dt": cfg.DC_RAW + cfg.DC_RATIOS + cfg.G_COLS + cfg.DT_COLS,
-        "Interactions only": cfg.INTERACTION_COLS,
-        "G + Interactions": cfg.G_COLS + cfg.INTERACTION_COLS,
-        "All + Interactions": cfg.ALL_FEATURES,
-    }
+    feature_sets: list[tuple[str, list]] = []
+    for r in range(1, len(group_order) + 1):
+        for combo in combinations(group_order, r):
+            feats: list = []
+            for code in combo:
+                feats.extend(code_to_feats[code])
+            label = " + ".join(combo)
+            feature_sets.append((label, feats))
+
     gkf = GroupKFold(n_splits=cfg.N_FOLDS)
     rows = []
-    for label, feats in feature_sets.items():
+    for label, feats in feature_sets:
         Xs = X_full[feats]
-        r2s, maes = [], []
+        r2s, maes, rmses = [], [], []
         for tr, te in gkf.split(Xs, y, groups):
             m = xgb.XGBRegressor(**params)
             m.fit(Xs.iloc[tr], y.iloc[tr], eval_set=[(Xs.iloc[te], y.iloc[te])], verbose=False)
             preds = m.predict(Xs.iloc[te])
-            r2s.append(r2_score(y.iloc[te], preds))
-            maes.append(mean_absolute_error(y.iloc[te], preds))
+            y_te = y.iloc[te]
+            r2s.append(r2_score(y_te, preds))
+            maes.append(mean_absolute_error(y_te, preds))
+            rmses.append(np.sqrt(mean_squared_error(y_te, preds)))
         row = {
             "label": label,
             "n_features": len(feats),
@@ -235,27 +331,46 @@ def ablation(X_full, y, groups, params: dict) -> pd.DataFrame:
             "R2_std": np.std(r2s),
             "MAE_mean": np.mean(maes),
             "MAE_std": np.std(maes),
+            "RMSE_mean": np.mean(rmses),
+            "RMSE_std": np.std(rmses),
         }
         rows.append(row)
         print(
-            f"  {label:14s} | n={len(feats):3d} | "
+            f"  {label:22s} | n={len(feats):3d} | "
             f"R²={row['R2_mean']:+.3f} ± {row['R2_std']:.3f} | "
-            f"MAE={row['MAE_mean']:.1f}"
+            f"MAE={row['MAE_mean']:.1f} ± {row['MAE_std']:.1f} | "
+            f"RMSE={row['RMSE_mean']:.1f}"
         )
     results = pd.DataFrame(rows)
-    fig, ax = plt.subplots(figsize=(9, 5))
+    results = results.sort_values("R2_mean", ascending=True).reset_index(drop=True)
+
+    fig_h = max(5.0, 0.22 * len(results) + 1.5)
+    fig, ax = plt.subplots(figsize=(9, fig_h))
     colours = ["#4472C4" if r > 0 else "#C0504D" for r in results.R2_mean]
-    ax.barh(results.label, results.R2_mean, xerr=results.R2_std, color=colours, capsize=3)
+    y_pos = np.arange(len(results))
+    ax.barh(y_pos, results.R2_mean, xerr=results.R2_std, color=colours, capsize=2)
     ax.axvline(0, color="black", lw=0.8)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(results.label, fontsize=8)
     ax.set_xlabel("R² (10-fold GroupKFold CV)")
-    ax.set_title("Ablation Study — Feature Group Contributions")
+    ax.set_title("Ablation — all feature-group combinations (Dc, G, Dt, P, I)")
+    xmax = max(results.R2_mean.max() + results.R2_std.max(), 0.05)
     for i, row in results.iterrows():
-        ax.text(max(row.R2_mean, 0) + 0.005, i, f"{row.R2_mean:+.3f}", va="center", fontsize=9)
+        ax.text(min(row.R2_mean + row.R2_std, xmax) + 0.005, i, f"{row.R2_mean:+.3f}", va="center", fontsize=7)
     plt.tight_layout()
     p = cfg.PLOT_DIR / "ablation.png"
     plt.savefig(p, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"[ablation] saved → {p}")
+
+    ablation_csv = cfg.RESULTS_DIR / "ablation_by_feature_group.csv"
+    sorted_down = results.sort_values("R2_mean", ascending=False).reset_index(drop=True)
+    sorted_down.to_csv(ablation_csv, index=False)
+    print(f"[ablation] table → {ablation_csv}")
+
+    p_matrix = cfg.PLOT_DIR / "ablation_matrix.png"
+    plot_ablation_presence_matrix(sorted_down, p_matrix, len(y))
+    print(f"[ablation] matrix figure → {p_matrix}")
     return results
 
 
@@ -292,6 +407,8 @@ def main():
             "R2_std": baseline_results.R2.std(),
             "MAE_mean": baseline_results.MAE.mean(),
             "MAE_std": baseline_results.MAE.std(),
+            "RMSE_mean": baseline_results.RMSE.mean(),
+            "RMSE_std": baseline_results.RMSE.std(),
         }
     )
 
@@ -314,6 +431,8 @@ def main():
                 "R2_std": tuned_results.R2.std(),
                 "MAE_mean": tuned_results.MAE.mean(),
                 "MAE_std": tuned_results.MAE.std(),
+                "RMSE_mean": tuned_results.RMSE.mean(),
+                "RMSE_std": tuned_results.RMSE.std(),
             }
         )
         active_params = best_params
@@ -355,6 +474,8 @@ def main():
         "R2_std",
         "MAE_mean",
         "MAE_std",
+        "RMSE_mean",
+        "RMSE_std",
     ]
     ordered_cols = [c for c in preferred_order if c in results_df.columns] + [
         c for c in results_df.columns if c not in preferred_order

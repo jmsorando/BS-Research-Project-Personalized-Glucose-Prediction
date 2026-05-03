@@ -11,7 +11,7 @@ from datetime import timedelta
 import numpy as np
 import pandas as pd
 
-from rp_glucose import config as cfg
+from research_project import config as cfg
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
@@ -62,6 +62,38 @@ NUTRIENT_COLS = [
     "ADDED_SUGAR",
     "CAFF",
 ]
+
+# CSV schema: model features from cfg plus pipeline-only / validation / stratification columns.
+G_FEATURE_MATRIX_COLS = list(cfg.G_COLS) + ["past_1h_glucose_range", "cv_glucose_24h"]
+DC_RATIO_FEATURE_MATRIX_COLS = [
+    "starch_fraction",
+    "sugar_fraction",
+    "free_sugar_fraction",
+    "rapid_glucose_equiv",
+    "intrinsic_sugar",
+    "fat_cho_ratio",
+    "protein_cho_ratio",
+    "fibre_cho_ratio",
+    "fat_sugar_ratio",
+    "protein_sugar_ratio",
+    "glycaemic_brake",
+    "n6_n3_ratio",
+]
+DT_FEATURE_MATRIX_COLS = [
+    "past_3h_kcal",
+    "past_3h_cho",
+    "past_3h_sugar",
+    "past_3h_fat",
+    "past_3h_prot",
+    "time_since_last_meal_min",
+    "time_since_last_sig_meal_min",
+    "hour_of_day",
+    "is_breakfast",
+    "is_lunch",
+    "is_dinner",
+    "is_snack",
+]
+INTERACTION_FEATURE_MATRIX_COLS = list(cfg.INTERACTION_COLS) + ["cv_x_hour_of_day"]
 
 
 def _parse_tz_offset(s):
@@ -643,10 +675,10 @@ def main():
     target_cols = ["iAUC_mmol_min"]
     quality_cols = ["confidence", "match_type", "batch_day", "baseline_glucose_mmol", "n_readings", "pct_coverage", "max_gap_min", "iauc_status"]
     dc_nutrient_cols = NUTRIENT_COLS
-    dc_ratio_cols = ["starch_fraction", "sugar_fraction", "free_sugar_fraction", "rapid_glucose_equiv", "intrinsic_sugar", "fat_cho_ratio", "protein_cho_ratio", "fibre_cho_ratio", "fat_sugar_ratio", "protein_sugar_ratio", "glycaemic_brake", "n6_n3_ratio"]
-    g_cols = ["baseline_glucose_mmol", "past_4h_glucose_trend", "past_1h_glucose_mean", "past_1h_glucose_sd", "past_1h_glucose_range", "mean_glucose_24h", "sd_glucose_24h", "cv_glucose_24h", "glucose_at_t_minus_15", "glucose_at_t_minus_30", "mage_24h", "conga1_24h", "conga2_24h", "modd_24h"]
-    dt_cols = ["past_3h_kcal", "past_3h_cho", "past_3h_sugar", "past_3h_fat", "past_3h_prot", "time_since_last_meal_min", "time_since_last_sig_meal_min", "hour_of_day", "is_breakfast", "is_lunch", "is_dinner", "is_snack"]
-    interaction_cols = ["cho_x_baseline_glucose", "cho_x_mage", "cho_x_time_since_last_meal", "cho_x_fibre", "cho_x_fat", "cho_x_protein", "cho_x_hour_of_day", "glucose_trend_x_hour_of_day", "mage_x_baseline_glucose", "cv_x_hour_of_day"]
+    dc_ratio_cols = DC_RATIO_FEATURE_MATRIX_COLS
+    g_cols = G_FEATURE_MATRIX_COLS
+    dt_cols = DT_FEATURE_MATRIX_COLS
+    interaction_cols = INTERACTION_FEATURE_MATRIX_COLS
     participant_cols = ["sex", "n_total_meals", "n_days_tracked", "mean_daily_kcal", "mean_daily_cho"]
     validation_cols = ["excursion_rise_mmol", "excursion_peak_mmol", "peak_glucose_mmol", "time_to_peak_min", "glucose_at_120min_mmol", "iAUC_mmol_h"]
     all_ordered = []

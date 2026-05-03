@@ -1,5 +1,5 @@
 """
-rp_glucose.config
+research_project.config
 ─────────────────
 Single source of truth for paths, feature lists, and model defaults.
 Import this everywhere. Never hardcode paths in notebooks or scripts.

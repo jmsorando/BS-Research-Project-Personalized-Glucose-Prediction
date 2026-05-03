@@ -219,3 +219,7 @@ output/models/
 output/plots/
 *.ubj
 .DS_Store
+
+# Regenerated ML outputs (optional — remove from index with `git rm -r --cached` if you want a slimmer repo)
+# training_outputs/
+# output/*.csv

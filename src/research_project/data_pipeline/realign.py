@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from scipy.signal import savgol_filter
 
-from rp_glucose import config as cfg
+from research_project import config as cfg
 
 warnings.filterwarnings("ignore")
 matplotlib.use("Agg")
@@ -794,14 +794,14 @@ def step10_plot(all_results, cgm_cache, mapping):
                         clip_on=True,
                     )
                 if ct and rt and ct != rt:
-                    ax.axvline(ct, color="orangered", ls="-", alpha=0.7, lw=0.9)
+                    ax.axvline(ct, color="purple", ls="-", alpha=0.7, lw=0.9)
                     y_arrow = ymax - (ymax - ymin) * (0.08 + 0.06 * arrow_idx)
                     shift = r.get("time_shift_min", 0)
                     ax.annotate(
                         "",
                         xy=(mdates.date2num(ct), y_arrow),
                         xytext=(mdates.date2num(rt), y_arrow),
-                        arrowprops=dict(arrowstyle="-|>", color="orangered", lw=1.2, mutation_scale=10),
+                        arrowprops=dict(arrowstyle="-|>", color="purple", lw=1.2, mutation_scale=10),
                         annotation_clip=True,
                     )
                     ax.text(
@@ -809,7 +809,7 @@ def step10_plot(all_results, cgm_cache, mapping):
                         y_arrow + (ymax - ymin) * 0.02,
                         f"{shift:+.0f}m",
                         fontsize=5,
-                        color="orangered",
+                        color="purple",
                         ha="center",
                         va="bottom",
                         clip_on=True,
