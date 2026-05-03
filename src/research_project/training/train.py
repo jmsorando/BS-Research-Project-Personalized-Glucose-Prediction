@@ -7,7 +7,6 @@ Run: ``rp-train`` or ``python -m research_project.training.train`` (after ``pip 
 from __future__ import annotations
 
 import argparse
-import io
 import json
 from itertools import combinations
 from pathlib import Path
@@ -23,11 +22,6 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import GroupKFold
 
 from research_project import config as cfg
-
-if __import__("sys").stdout.encoding and __import__("sys").stdout.encoding.lower() != "utf-8":
-    sys_mod = __import__("sys")
-    sys_mod.stdout = io.TextIOWrapper(sys_mod.stdout.buffer, encoding="utf-8", errors="replace")
-    sys_mod.stderr = io.TextIOWrapper(sys_mod.stderr.buffer, encoding="utf-8", errors="replace")
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -393,6 +387,7 @@ def parse_args():
 
 
 def main():
+    cfg.ensure_output_dirs()
     args = parse_args()
     if args.all:
         args.tune = args.shap = args.ablation = True

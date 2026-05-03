@@ -22,6 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
+rp-pipeline = "research_project.pipeline:main"
 rp-train = "research_project.training.train:main"
 rp-plots = "research_project.training.plots:main"
 rp-shap-report = "research_project.analysis.shap_analysis:main"

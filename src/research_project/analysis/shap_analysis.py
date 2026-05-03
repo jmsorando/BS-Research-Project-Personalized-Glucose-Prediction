@@ -8,15 +8,7 @@ After `pip install -e .`:
 """
 
 import sys
-import io
 import json
-from pathlib import Path
-from typing import cast
-
-# Fix cp1252 encoding on Windows
-if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 import matplotlib
 matplotlib.use("Agg")
@@ -125,10 +117,9 @@ def main() -> None:
         print("  Full SHAP report (figures 01–04, CSVs). Requires feature matrix and trained model.")
         return
 
+    cfg.ensure_output_dirs()
     shap_plot_dir = cfg.PLOT_DIR / "shap"
     shap_plot_dir.mkdir(parents=True, exist_ok=True)
-    cfg.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    cfg.MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # DATA LOADING
@@ -139,7 +130,6 @@ def main() -> None:
     print("=" * 60)
 
     X, y, groups = load_data()
-    X = cast(pd.DataFrame, X)
     participant_ids = groups.to_numpy()
     print(f"  Rows: {len(X):,}  Features: {X.shape[1]}  "
           f"Participants: {groups.nunique()}")
@@ -263,7 +253,8 @@ def main() -> None:
     _pid_aux = pd.DataFrame({"participant_id": groups.to_numpy()})
     sampled_idx = (
         _pid_aux.groupby("participant_id", group_keys=False)
-        .apply(lambda g: g.sample(min(len(g), 20), random_state=42))
+        .apply(lambda g: g.sample(min(len(g), 20), random_state=42),
+               include_groups=False)
         .index.to_numpy()
     )
 
@@ -421,7 +412,6 @@ def main() -> None:
         return row["mean_shap"].values[0] if len(row) > 0 else None  # type: ignore[union-attr]
 
     n_features = len(cfg.ALL_FEATURES)
-    bottom_20_threshold = int(n_features * 0.8)
 
     checks = []
 
@@ -441,26 +431,21 @@ def main() -> None:
                    "Positive",
                    "OK" if ok else "RED FLAG: not positive"))
 
-    # 3. Participant leakage check
-    r_meals = get_rank("n_total_meals")
-    r_days = get_rank("n_days_tracked")
-    leakage_flag = False
-    if r_meals and r_meals <= 10:
-        leakage_flag = True
-    if r_days and r_days <= 10:
-        leakage_flag = True
-    checks.append(("n_total_meals / n_days_tracked rank",
-                   f"n_total_meals=#{r_meals}, n_days_tracked=#{r_days}",
-                   f"Bottom 20% (rank > {bottom_20_threshold})",
-                   "OK" if not leakage_flag else "RED FLAG: participant leakage suspected"))
+    # 3. Participant-level feature leakage check (sex is the only P_COL in the model)
+    r_sex = get_rank("sex")
+    sex_in_top10 = r_sex is not None and r_sex <= 10
+    checks.append(("sex (participant covariate) rank",
+                   f"#{r_sex}" if r_sex else "NOT IN MODEL",
+                   f"Bottom 50% (rank > {n_features // 2})",
+                   "OK" if not sex_in_top10 else "WARNING: participant covariate dominant"))
 
-    # 5. Within vs across SHAP similarity gap
+    # 4. Within vs across SHAP similarity gap
     checks.append(("Within vs across SHAP gap",
                    f"{gap:.3f}",
                    "< 0.05",
                    "OK" if gap < 0.05 else ("WARNING" if gap < 0.15 else "RED FLAG: memorisation")))
 
-    # 6. Feature stability
+    # 5. Feature stability
     baseline_stability = None
     cho_stability = None
     for _, row in stable_df.iterrows():

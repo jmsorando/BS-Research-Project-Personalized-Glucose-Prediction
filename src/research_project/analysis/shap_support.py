@@ -53,9 +53,6 @@ def shap_matrix_and_expected(
     mock_numba_for_shap()
     import shap
 
-    explainer = shap.TreeExplainer(model)
-    ev = _expected_value_scalar(explainer)
-
     if prefer_disk and shap_csv.exists():
         existing = pd.read_csv(shap_csv)
         if (
@@ -63,8 +60,12 @@ def shap_matrix_and_expected(
             and len(existing) == len(X)
             and existing.shape[1] == len(feature_names)
         ):
+            explainer = shap.TreeExplainer(model)
+            ev = _expected_value_scalar(explainer)
             return existing.to_numpy(dtype=float, copy=False), ev, True
 
+    explainer = shap.TreeExplainer(model)
+    ev = _expected_value_scalar(explainer)
     shap_vals = explainer.shap_values(X)
     pd.DataFrame(shap_vals, columns=feature_names).to_csv(shap_csv, index=False)
     return shap_vals, ev, False

@@ -27,8 +27,11 @@ MODEL_DIR = OUTPUT_DIR / "models"
 PLOT_DIR = OUTPUT_DIR / "plots"
 RESULTS_DIR = OUTPUT_DIR / "results"
 
-for d in [MODEL_DIR, PLOT_DIR, RESULTS_DIR]:
-    d.mkdir(parents=True, exist_ok=True)
+
+def ensure_output_dirs() -> None:
+    """Create output directories on demand (call before writing files)."""
+    for d in [MODEL_DIR, PLOT_DIR, RESULTS_DIR]:
+        d.mkdir(parents=True, exist_ok=True)
 
 # ── Target & filtering ──────────────────────────────────────────────────────
 TARGET = "iAUC_mmol_min"

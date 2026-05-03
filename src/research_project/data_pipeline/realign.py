@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
 """CGM-First Meal Time Re-Alignment Pipeline v3."""
-import sys
-
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-
 import json
 from collections import Counter
 from datetime import datetime, timedelta
@@ -739,7 +735,7 @@ def step10_report(all_results, mapping, exc_counts, time_fmts, day_info):
     print(f"  processing_report.csv         ({len(df)} rows)")
 
 
-def step10_plot(all_results, cgm_cache, mapping):
+def step10_plot(all_results, cgm_cache, mapping, day_info=None):
     os.makedirs(OUT / "plots", exist_ok=True)
     pids_done = set()
     for mf24, (pid, cgm_p) in mapping.items():
@@ -820,7 +816,7 @@ def step10_plot(all_results, cgm_cache, mapping):
                     diff = (dc["ts_local"] - nt).abs()
                     idx = diff.idxmin()
                     ax.plot(nt, dc.loc[idx, "glucose"], "v", color="green", ms=4, alpha=0.6)
-            et = day_info_global.get((mf24, d), "")
+            et = (day_info or {}).get((mf24, d), "")
             ax.set_title(f"{d}  {'[BATCH]' if et == 'batch' else ''}", fontsize=8)
             ax.tick_params(labelsize=6)
             ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
@@ -876,8 +872,7 @@ def step10_global(all_results):
     print("  plots/global_summary.png")
 
 
-day_info_global = {}
-NUTRIENT_COLS = []
+NUTRIENT_COLS = []  # populated in main(); used by _agg, step5, step10_csv helpers
 _META_COLS = {
     "Patient Id",
     "Sex",
@@ -910,7 +905,7 @@ def _discover_nutrient_cols(diary):
 
 
 def main():
-    global day_info_global, NUTRIENT_COLS
+    global NUTRIENT_COLS
     print("=" * 72)
     print("  CGM-First Meal Time Re-Alignment Pipeline  v3")
     print("=" * 72)
@@ -918,7 +913,6 @@ def main():
     NUTRIENT_COLS = _discover_nutrient_cols(diary)
     print(f"  {len(NUTRIENT_COLS)} nutrient columns detected")
     time_fmts, day_info = step2(diary, mapping)
-    day_info_global = day_info
     all_results = []
     cgm_cache = {}
     exc_counts = {}
@@ -959,7 +953,7 @@ def main():
     step10_csv(all_results)
     step10_report(all_results, mapping, exc_counts, time_fmts, day_info)
     print("  Generating plots...")
-    step10_plot(all_results, cgm_cache, mapping)
+    step10_plot(all_results, cgm_cache, mapping, day_info)
     step10_global(all_results)
     print("\n" + "=" * 72)
     print("  PIPELINE COMPLETE")

@@ -6,7 +6,7 @@ Run: ``rp-plots`` or ``python -m research_project.training.plots`` (after ``pip 
 
 import argparse
 import json
-from typing import cast
+from typing import Any, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,7 +23,7 @@ UNIT = "mmol·min/L"
 
 
 def plot_iauc_distribution() -> None:
-    df = cast(pd.DataFrame, load_training_table())
+    df = load_training_table()
     y = cast(pd.Series, df[cfg.TARGET])
 
     _, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
@@ -93,9 +93,10 @@ def plot_oof_scatter(oof: pd.DataFrame, r2: float, mae: float) -> None:
     pad = 0.05 * (hi - lo)
     lims = (lo - pad, hi + pad)
 
-    slope_v, intercept_v, _, _, _ = stats.linregress(x, yhat)
-    slope = float(slope_v)
-    intercept = float(intercept_v)
+    # Stubs widen linregress components to object; cast before float().
+    lr = stats.linregress(x, yhat)
+    slope = float(cast(Any, lr[0]))
+    intercept = float(cast(Any, lr[1]))
     xx = np.linspace(lims[0], lims[1], 200)
     yy = slope * xx + intercept
 
@@ -148,6 +149,7 @@ def run_oof_scatter() -> None:
 
 
 def main() -> None:
+    cfg.ensure_output_dirs()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "which",

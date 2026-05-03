@@ -4,7 +4,6 @@ Build XGBoost feature matrix for iAUC prediction.
 
 Each row is one glucose excursion and target is 2h postprandial iAUC.
 """
-import sys
 from collections import Counter
 from datetime import timedelta
 
@@ -12,8 +11,6 @@ import numpy as np
 import pandas as pd
 
 from research_project import config as cfg
-
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 CGM_DIR = cfg.CGM_DIR
 MEAL_FILE = cfg.REALIGNED_TIMES

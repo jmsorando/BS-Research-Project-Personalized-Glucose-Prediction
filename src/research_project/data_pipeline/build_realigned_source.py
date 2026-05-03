@@ -6,17 +6,14 @@ Reads the original patient extract and corrected_meal_times output, maps each
 food item row to its meal bundle, and applies the time shift from realignment.
 """
 import json
-import sys
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from research_project import config as cfg
-
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 SRC = cfg.SOURCE_DIR
 OUT = cfg.OUTPUT_DATA_DIR
@@ -121,16 +118,12 @@ def main():
     print(f"  Matched {matched_count}/{len(source)} rows")
 
     print("Applying time shifts...")
-    new_times = []
-    for i, row in source.iterrows():
-        shift = shifts[i]
-        parsed = row["_parsed_time"]
-        if pd.notna(parsed) and shift != 0:
-            corrected_dt = parsed + timedelta(minutes=shift)
-            new_times.append(f"{corrected_dt.hour}:{corrected_dt.minute:02d}")
-        else:
-            new_times.append(row["Time consumed at"])
-    source["Time consumed at"] = new_times
+    shift_td = pd.to_timedelta(shifts, unit="min")
+    has_shift = (shifts != 0) & source["_parsed_time"].notna()
+    corrected_dt = source["_parsed_time"] + shift_td
+    # Format as "H:MM" — strip leading zero for consistency with original data
+    formatted = corrected_dt.dt.hour.astype(str) + ":" + corrected_dt.dt.minute.map("{:02d}".format)
+    source["Time consumed at"] = np.where(has_shift, formatted, source["Time consumed at"])
     source["time_shift_min"] = shifts
     source.drop(columns=["_date", "_parsed_time"], inplace=True)
     out_path = OUT / "patient_extract1602_realigned.csv"

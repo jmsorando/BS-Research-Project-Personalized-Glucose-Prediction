@@ -49,9 +49,10 @@ RP Cleaning 5/
 │
 ├── src/research_project/            # Python package (import as `research_project`)
 │   ├── config.py                    # Paths, feature column lists, model defaults
+│   ├── pipeline.py                  # `rp-pipeline`: chained stages (realign → … → train, optional plots/SHAP)
 │   ├── data_pipeline/               # realign, build_realigned_source, feature_matrix
 │   ├── training/                    # train, plots
-│   └── analysis/                    # shap_analysis, shap_train_exports
+│   └── analysis/                    # shap_analysis, shap_train_exports, shap_support
 │
 ├── source/                          # Raw input data (do not modify)
 │   ├── cgm_data/                    # 95 per-participant CGM files (Dexcom)
@@ -72,10 +73,6 @@ RP Cleaning 5/
 │   ├── results/                     # CV metrics, SHAP CSVs, best_params.json
 │   └── plots/                       # ablation, OOF scatter; `shap/` = full report from `rp-shap-report`;
 │                                    # `rp-train --shap` also writes flat `shap_summary.png` + `shap_dependence_top4.png`
-│
-└── docs/
-    ├── audit_report.md              # Pipeline integrity audit
-    └── dc_pruning_report.md         # Dc feature collinearity & pruning analysis
 ```
 
 ---
@@ -91,7 +88,9 @@ pip install -r requirements.txt
 # equivalent: pip install -e .
 ```
 
-This exposes console commands `rp-train`, `rp-realign`, etc., and allows `python -m research_project...` invocations.
+This exposes console commands (`rp-pipeline`, `rp-train`, `rp-realign`, …) and allows `python -m research_project...` invocations.
+
+**Full stack in one go:** `rp-pipeline` runs realign → build-realigned-source → feature-matrix → train; add `--plots`, `--shap`, `--tune`, `--ablation`, or `--all` for optional stages. Use `--skip-to STAGE` to resume.
 
 ### Local CLI
 
@@ -241,8 +240,6 @@ The feature matrix and source data are included in this repository. If you only 
 
 ## Further Reading
 
-- [`docs/audit_report.md`](docs/audit_report.md) — Pipeline integrity audit (file checks, schema validation)
-- [`docs/dc_pruning_report.md`](docs/dc_pruning_report.md) — Diet composition feature collinearity analysis (VIF, SHAP ranking, pruning decisions)
 - [`src/research_project/config.py`](src/research_project/config.py) — Feature lists, hyperparameters, paths, and search spaces
 
 ---

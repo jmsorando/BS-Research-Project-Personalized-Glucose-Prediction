@@ -1,2 +1,2 @@
-# Install package + dependencies (editable). See pyproject.toml for pins.
+# Editable install; dependency pins live in pyproject.toml
 -e .
