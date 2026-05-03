@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-import unittest.mock
 from pathlib import Path
 
 import matplotlib
@@ -13,17 +11,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np
 import pandas as pd
 
-_NUMBA_MOCKS = [
-    "numba",
-    "numba.core",
-    "numba.core.decorators",
-    "numba.stencils",
-    "numba.stencils.stencil",
-    "numba.core.ir_utils",
-    "numba.core.extending",
-    "numba.core.pythonapi",
-    "numba.typed",
-]
+from research_project.analysis.shap_support import shap_matrix_and_expected
 
 
 def run_train_shap_exports(
@@ -36,20 +24,20 @@ def run_train_shap_exports(
     TreeExplainer on full data; writes `shap_values.csv`, `shap_summary.png`,
     and `shap_dependence_top4.png` under plot_dir (flat — not plots/shap/).
     """
-    for mod in _NUMBA_MOCKS:
-        if mod not in sys.modules:
-            sys.modules[mod] = unittest.mock.MagicMock()
-
     import shap
 
     results_dir.mkdir(parents=True, exist_ok=True)
     plot_dir.mkdir(parents=True, exist_ok=True)
 
+    shap_csv = results_dir / "shap_values.csv"
     print("[shap]  computing SHAP values ...")
-    explainer = shap.TreeExplainer(model)
-    shap_vals = explainer.shap_values(X)
-
-    pd.DataFrame(shap_vals, columns=X.columns).to_csv(results_dir / "shap_values.csv", index=False)
+    shap_vals, _, _ = shap_matrix_and_expected(
+        model,
+        X,
+        list(X.columns),
+        shap_csv,
+        prefer_disk=False,
+    )
 
     shap.summary_plot(shap_vals, X, max_display=20, show=False)
     plt.gca().set_xlabel("SHAP value (mmol·min/L)")

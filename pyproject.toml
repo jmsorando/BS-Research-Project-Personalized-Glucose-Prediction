@@ -31,3 +31,9 @@ rp-build-feature-matrix = "research_project.data_pipeline.feature_matrix:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# Help the IDE resolve `import research_project` without relying only on editable installs.
+[tool.pyright]
+include = ["src"]
+extraPaths = ["src"]
+pythonVersion = "3.10"

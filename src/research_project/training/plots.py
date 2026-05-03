@@ -17,13 +17,13 @@ from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.model_selection import GroupKFold
 
 from research_project import config as cfg
+from research_project.training.train import load_data, load_training_table
 
 UNIT = "mmol·min/L"
 
 
 def plot_iauc_distribution() -> None:
-    df = cast(pd.DataFrame, pd.read_csv(cfg.FEATURE_MATRIX))
-    df = df[df["iauc_status"] == cfg.IAUC_STATUS].copy()
+    df = cast(pd.DataFrame, load_training_table())
     y = cast(pd.Series, df[cfg.TARGET])
 
     _, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
@@ -51,13 +51,8 @@ def plot_iauc_distribution() -> None:
 
 
 def compute_oof_predictions() -> pd.DataFrame:
-    df = cast(pd.DataFrame, pd.read_csv(cfg.FEATURE_MATRIX))
-    df = df[df["iauc_status"] == cfg.IAUC_STATUS].reset_index(drop=True)
-    df["sex"] = cast(pd.Series, df["sex"]).map({"Male": 0, "Female": 1})
-
-    X = cast(pd.DataFrame, df[cfg.ALL_FEATURES])
-    y = cast(pd.Series, df[cfg.TARGET])
-    groups = cast(pd.Series, df["participant_id"]).to_numpy()
+    X, y, groups = load_data()
+    groups_arr = groups.to_numpy()
 
     best_params_path = cfg.RESULTS_DIR / "best_params.json"
     if best_params_path.exists():
@@ -69,7 +64,7 @@ def compute_oof_predictions() -> pd.DataFrame:
         print("[params] using BASELINE_PARAMS")
 
     gkf = GroupKFold(n_splits=cfg.N_FOLDS)
-    oof_pred = np.full(len(df), np.nan)
+    oof_pred = np.full(len(X), np.nan)
     for fold, (tr, te) in enumerate(gkf.split(X, y, groups), start=1):
         m = xgb.XGBRegressor(**params)
         m.fit(X.iloc[tr], y.iloc[tr], eval_set=[(X.iloc[te], y.iloc[te])], verbose=False)
@@ -78,7 +73,7 @@ def compute_oof_predictions() -> pd.DataFrame:
 
     oof = pd.DataFrame(
         {
-            "participant_id": groups,
+            "participant_id": groups_arr,
             "actual_iauc": y.values,
             "predicted_iauc": oof_pred,
         }

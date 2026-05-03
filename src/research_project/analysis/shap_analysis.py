@@ -7,22 +7,16 @@ After `pip install -e .`:
     # or: python -m research_project.analysis.shap_analysis
 """
 
-import sys, io, unittest.mock
+import sys
+import io
 import json
 from pathlib import Path
+from typing import cast
 
 # Fix cp1252 encoding on Windows
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-
-# Block numba before shap loads it — its DLL is blocked by Windows App Control
-for _mod in ["numba", "numba.core", "numba.core.decorators",
-             "numba.stencils", "numba.stencils.stencil",
-             "numba.core.ir_utils", "numba.core.extending",
-             "numba.core.pythonapi", "numba.typed"]:
-    if _mod not in sys.modules:
-        sys.modules[_mod] = unittest.mock.MagicMock()
 
 import matplotlib
 matplotlib.use("Agg")
@@ -38,6 +32,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import GroupKFold
 
 from research_project import config as cfg
+from research_project.analysis.shap_support import shap_matrix_and_expected
+from research_project.training.train import load_data
 
 # ── Colour palette (ColorBrewer, colorblind-safe, print-safe) ────────────
 COLOUR = {
@@ -124,6 +120,11 @@ def get_feature_group(feat):
 
 
 def main() -> None:
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print("Usage: rp-shap-report  |  python -m research_project.analysis.shap_analysis")
+        print("  Full SHAP report (figures 01–04, CSVs). Requires feature matrix and trained model.")
+        return
+
     shap_plot_dir = cfg.PLOT_DIR / "shap"
     shap_plot_dir.mkdir(parents=True, exist_ok=True)
     cfg.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -137,16 +138,11 @@ def main() -> None:
     print("LOADING DATA")
     print("=" * 60)
 
-    df = pd.read_csv(cfg.FEATURE_MATRIX)
-    df = df[df["iauc_status"] == cfg.IAUC_STATUS].reset_index(drop=True)
-    df["sex"] = df["sex"].map({"Male": 0, "Female": 1})  # type: ignore[arg-type]
-
-    X = df[cfg.ALL_FEATURES]
-    y = df[cfg.TARGET]
-    participant_ids = df["participant_id"].values  # type: ignore[union-attr]
-
-    print(f"  Rows: {len(df):,}  Features: {X.shape[1]}  "
-          f"Participants: {df['participant_id'].nunique()}")  # type: ignore[union-attr]
+    X, y, groups = load_data()
+    X = cast(pd.DataFrame, X)
+    participant_ids = groups.to_numpy()
+    print(f"  Rows: {len(X):,}  Features: {X.shape[1]}  "
+          f"Participants: {groups.nunique()}")
 
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -184,24 +180,11 @@ def main() -> None:
         model.save_model(str(model_path))
         print(f"  Saved model to {model_path}")
 
-    # Load or compute SHAP values
-    if shap_csv.exists():
-        shap_df = pd.read_csv(shap_csv)
-        shap_vals = shap_df.values
-        print(f"  Loaded SHAP values from {shap_csv}")
-    else:
-        print("  Computing SHAP values ...")
-        explainer = shap.TreeExplainer(model)
-        shap_vals = explainer.shap_values(X)
-        shap_df = pd.DataFrame(shap_vals, columns=cfg.ALL_FEATURES)
-        shap_df.to_csv(shap_csv, index=False)
-        print(f"  Saved SHAP values to {shap_csv}")
-
-    explainer = shap.TreeExplainer(model)
-    expected_value = explainer.expected_value
-    if hasattr(expected_value, "__len__"):
-        expected_value = float(expected_value[0]) if len(expected_value) == 1 else float(np.mean(expected_value))
-    expected_value = float(expected_value)
+    print("  Resolving SHAP values (compatible cache → load; else TreeExplainer) ...")
+    shap_vals, expected_value, from_disk = shap_matrix_and_expected(
+        model, X, list(cfg.ALL_FEATURES), shap_csv, prefer_disk=True
+    )
+    print(f"  {'Loaded' if from_disk else 'Saved'} SHAP values → {shap_csv.name}")
 
     print(f"  SHAP matrix shape: {shap_vals.shape}")
     print(f"  Expected value (baseline): {expected_value:.2f}")
@@ -276,9 +259,13 @@ def main() -> None:
 
     # Sample up to 20 meals per participant for speed
     np.random.seed(cfg.RANDOM_SEED)
-    sampled_idx = (df.groupby("participant_id", group_keys=False)
-                     .apply(lambda g: g.sample(min(len(g), 20), random_state=42))
-                     .index.to_numpy())
+    # Positional rows only — shap_vals[i] aligns with iloc i, not arbitrary X.index labels.
+    _pid_aux = pd.DataFrame({"participant_id": groups.to_numpy()})
+    sampled_idx = (
+        _pid_aux.groupby("participant_id", group_keys=False)
+        .apply(lambda g: g.sample(min(len(g), 20), random_state=42))
+        .index.to_numpy()
+    )
 
     shap_sample = shap_vals[sampled_idx]
     pid_sample = participant_ids[sampled_idx]
@@ -348,7 +335,7 @@ def main() -> None:
     gkf = GroupKFold(n_splits=cfg.N_FOLDS)
     fold_top10 = []
 
-    for fold, (tr, te) in enumerate(gkf.split(X, y, df["participant_id"])):
+    for fold, (tr, te) in enumerate(gkf.split(X, y, groups)):
         m = xgb.XGBRegressor(**train_params)
         m.fit(X.iloc[tr], y.iloc[tr])  # type: ignore[union-attr]
         exp = shap.TreeExplainer(m)

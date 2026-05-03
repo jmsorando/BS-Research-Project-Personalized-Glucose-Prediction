@@ -4,11 +4,14 @@ Training CLI for the research_project package.
 Run: ``rp-train`` or ``python -m research_project.training.train`` (after ``pip install -e .``).
 """
 
+from __future__ import annotations
+
 import argparse
 import io
 import json
 from itertools import combinations
 from pathlib import Path
+from typing import cast
 
 import joblib
 import matplotlib.pyplot as plt
@@ -29,7 +32,8 @@ if __import__("sys").stdout.encoding and __import__("sys").stdout.encoding.lower
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 
-def load_data(path: Path = cfg.FEATURE_MATRIX):
+def load_training_table(path: Path = cfg.FEATURE_MATRIX) -> pd.DataFrame:
+    """Filtered feature matrix rows used for modelling (validates schema)."""
     df = pd.read_csv(path)
     df = df[df["iauc_status"] == cfg.IAUC_STATUS].copy()
     df["sex"] = df["sex"].map({"Male": 0, "Female": 1})
@@ -42,8 +46,12 @@ def load_data(path: Path = cfg.FEATURE_MATRIX):
     if excluded_present:
         print("[data]  excluded-by-design columns detected (not used for training):")
         print(f"        {', '.join(excluded_present)}")
+    return df
 
-    X = df[cfg.ALL_FEATURES]
+
+def load_data(path: Path = cfg.FEATURE_MATRIX) -> tuple[pd.DataFrame, pd.Series, pd.Series]:
+    df = load_training_table(path)
+    X = cast(pd.DataFrame, df[cfg.ALL_FEATURES])
     y = df[cfg.TARGET]
     groups = df["participant_id"]
     print(
