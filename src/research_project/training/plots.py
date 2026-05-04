@@ -11,13 +11,16 @@ from typing import Any, cast
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 from scipy import stats
-from sklearn.metrics import mean_absolute_error, r2_score
-from sklearn.model_selection import GroupKFold
 
 from research_project import config as cfg
-from research_project.training.train import load_data, load_training_table
+from research_project.training.train import (
+    FULL_FEATURE_GROUP_ABLATION_LABEL,
+    LAST_FIT_PARAMS_JSON,
+    groupkfold_xgb_oof_and_fold_metrics,
+    load_data,
+    load_training_table,
+)
 
 UNIT = "mmol·min/L"
 
@@ -50,26 +53,41 @@ def plot_iauc_distribution() -> None:
     plt.close()
 
 
-def compute_oof_predictions() -> pd.DataFrame:
-    X, y, groups = load_data()
-    groups_arr = groups.to_numpy()
-
+def _params_for_oof_scatter() -> dict:
+    """Params from the last ``rp-train`` run (matches ablation); else tuned snapshot; else baseline."""
+    merged = dict(cfg.BASELINE_PARAMS)
+    if LAST_FIT_PARAMS_JSON.exists():
+        with open(LAST_FIT_PARAMS_JSON, encoding="utf-8") as f:
+            merged.update(json.load(f))
+        print(f"[params] using last training run → {LAST_FIT_PARAMS_JSON}")
+        return merged
     best_params_path = cfg.RESULTS_DIR / "best_params.json"
     if best_params_path.exists():
         with open(best_params_path, encoding="utf-8") as f:
-            params = json.load(f)
-        print(f"[params] loaded tuned params from {best_params_path}")
-    else:
-        params = dict(cfg.BASELINE_PARAMS)
-        print("[params] using BASELINE_PARAMS")
+            merged.update(json.load(f))
+        print(
+            f"[params] no {LAST_FIT_PARAMS_JSON.name}; loaded {best_params_path.name} "
+            "(run rp-train so OOF matches ablation from the same run)"
+        )
+        return merged
+    print("[params] using BASELINE_PARAMS only")
+    return merged
 
-    gkf = GroupKFold(n_splits=cfg.N_FOLDS)
-    oof_pred = np.full(len(X), np.nan)
-    for fold, (tr, te) in enumerate(gkf.split(X, y, groups), start=1):
-        m = xgb.XGBRegressor(**params)
-        m.fit(X.iloc[tr], y.iloc[tr], eval_set=[(X.iloc[te], y.iloc[te])], verbose=False)
-        oof_pred[te] = m.predict(X.iloc[te])
-        print(f"  fold {fold:2d} | n_test={len(te):4d} | MAE={mean_absolute_error(y.iloc[te], oof_pred[te]):.2f}")
+
+def compute_oof_predictions() -> tuple[pd.DataFrame, float, float]:
+    """Fit GroupKFold OOF preds; return (oof frame, mean per-fold R², mean per-fold MAE).
+
+    Uses the same CV loop as ``train.ablation`` (``groupkfold_xgb_oof_and_fold_metrics``)
+    and the same hyperparameters as the last ``rp-train`` (``last_fit_params.json``) so
+    mean CV R²/MAE match the matrix row ``Dc + G + Dt + P + I`` from that run.
+    """
+    X, y, groups = load_data()
+    groups_arr = groups.to_numpy()
+    params = _params_for_oof_scatter()
+
+    oof_pred, r2_folds, mae_folds, _ = groupkfold_xgb_oof_and_fold_metrics(X, y, groups, params)
+    for fold, (mae, r2) in enumerate(zip(mae_folds, r2_folds, strict=True), start=1):
+        print(f"  fold {fold:2d} | MAE={mae:.2f}  R²={r2:+.3f}")
 
     oof = pd.DataFrame(
         {
@@ -81,7 +99,9 @@ def compute_oof_predictions() -> pd.DataFrame:
     out_csv = cfg.RESULTS_DIR / "oof_predictions.csv"
     oof.to_csv(out_csv, index=False)
     print(f"[oof] saved -> {out_csv}")
-    return oof
+    r2_mean_cv = float(np.mean(r2_folds))
+    mae_mean_cv = float(np.mean(mae_folds))
+    return oof, r2_mean_cv, mae_mean_cv
 
 
 def plot_oof_scatter(oof: pd.DataFrame, r2: float, mae: float) -> None:
@@ -125,11 +145,12 @@ def plot_oof_scatter(oof: pd.DataFrame, r2: float, mae: float) -> None:
     ax.text(
         0.04,
         0.96,
-        f"$R^2$ = {r2:.3f}\nMAE = {mae:.1f} {UNIT}",
+        f"$R^2$ (mean CV) = {r2:.3f}\nMAE (mean CV) = {mae:.1f} {UNIT}\n"
+        f"({FULL_FEATURE_GROUP_ABLATION_LABEL})",
         transform=ax.transAxes,
         va="top",
         ha="left",
-        fontsize=11,
+        fontsize=10,
         bbox=dict(boxstyle="round,pad=0.4", fc="white", ec="grey", lw=0.8, alpha=0.9),
     )
     ax.legend(loc="lower right", frameon=False, fontsize=10)
@@ -141,11 +162,9 @@ def plot_oof_scatter(oof: pd.DataFrame, r2: float, mae: float) -> None:
 
 
 def run_oof_scatter() -> None:
-    oof = compute_oof_predictions()
-    r2 = r2_score(oof["actual_iauc"], oof["predicted_iauc"])
-    mae = mean_absolute_error(oof["actual_iauc"], oof["predicted_iauc"])
-    print(f"[oof] R²={r2:.3f}  MAE={mae:.2f}")
-    plot_oof_scatter(oof, r2, mae)
+    oof, r2_mean_cv, mae_mean_cv = compute_oof_predictions()
+    print(f"[oof] R² (mean CV)={r2_mean_cv:.3f}  MAE (mean CV)={mae_mean_cv:.2f}")
+    plot_oof_scatter(oof, r2_mean_cv, mae_mean_cv)
 
 
 def main() -> None:

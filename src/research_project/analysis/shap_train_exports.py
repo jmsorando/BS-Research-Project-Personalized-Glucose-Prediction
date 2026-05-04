@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np
 import pandas as pd
 
+from research_project import config as cfg
 from research_project.analysis.shap_support import shap_matrix_and_expected
 
 
@@ -30,13 +31,23 @@ def run_train_shap_exports(
     plot_dir.mkdir(parents=True, exist_ok=True)
 
     shap_csv = results_dir / "shap_values.csv"
-    print("[shap]  computing SHAP values ...")
+    model_path = cfg.MODEL_DIR / "final_model.ubj"
+    prefer_disk = True
+    if shap_csv.exists() and model_path.exists():
+        if model_path.stat().st_mtime > shap_csv.stat().st_mtime:
+            prefer_disk = False
+            print("[shap]  model newer than SHAP cache — recomputing SHAP values ...")
+    else:
+        prefer_disk = False
+        print("[shap]  computing SHAP values ...")
+    if prefer_disk:
+        print("[shap]  loading SHAP values from cache (if compatible) ...")
     shap_vals, _, _ = shap_matrix_and_expected(
         model,
         X,
         list(X.columns),
         shap_csv,
-        prefer_disk=False,
+        prefer_disk=prefer_disk,
     )
 
     shap.summary_plot(shap_vals, X, max_display=20, show=False)

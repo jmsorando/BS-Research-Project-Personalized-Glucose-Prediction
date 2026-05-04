@@ -170,9 +170,15 @@ def main() -> None:
         model.save_model(str(model_path))
         print(f"  Saved model to {model_path}")
 
+    prefer_disk = True
+    if shap_csv.exists() and model_path.exists():
+        if model_path.stat().st_mtime > shap_csv.stat().st_mtime:
+            prefer_disk = False
+            print("  Model newer than SHAP cache — recomputing SHAP values")
+
     print("  Resolving SHAP values (compatible cache → load; else TreeExplainer) ...")
     shap_vals, expected_value, from_disk = shap_matrix_and_expected(
-        model, X, list(cfg.ALL_FEATURES), shap_csv, prefer_disk=True
+        model, X, list(cfg.ALL_FEATURES), shap_csv, prefer_disk=prefer_disk
     )
     print(f"  {'Loaded' if from_disk else 'Saved'} SHAP values → {shap_csv.name}")
 

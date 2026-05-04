@@ -25,6 +25,51 @@ from research_project import config as cfg
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
+# Label for the ablation row that uses every feature group (same columns as ``load_data`` X).
+FULL_FEATURE_GROUP_ABLATION_LABEL = "Dc + G + Dt + P + I"
+LAST_FIT_PARAMS_JSON = cfg.RESULTS_DIR / "last_fit_params.json"
+
+
+def params_to_jsonable(params: dict) -> dict:
+    """JSON-serialize XGBoost / Optuna param dicts (handles numpy scalars)."""
+    out: dict = {}
+    for k, v in params.items():
+        if isinstance(v, (str, bool)) or v is None:
+            out[k] = v
+        elif isinstance(v, (float, int)):
+            out[k] = v
+        elif isinstance(v, np.floating):
+            out[k] = float(v)
+        elif isinstance(v, np.integer):
+            out[k] = int(v)
+        else:
+            out[k] = v
+    return out
+
+
+def groupkfold_xgb_oof_and_fold_metrics(
+    X: pd.DataFrame,
+    y: pd.Series,
+    groups: pd.Series,
+    params: dict,
+) -> tuple[np.ndarray, list[float], list[float], list[float]]:
+    """One GroupKFold pass: OOF predictions + fold-wise R², MAE, RMSE (ablation / OOF scatter)."""
+    gkf = GroupKFold(n_splits=cfg.N_FOLDS)
+    oof_pred = np.full(len(X), np.nan)
+    r2s: list[float] = []
+    maes: list[float] = []
+    rmses: list[float] = []
+    for tr, te in gkf.split(X, y, groups):
+        m = xgb.XGBRegressor(**params)
+        m.fit(X.iloc[tr], y.iloc[tr], eval_set=[(X.iloc[te], y.iloc[te])], verbose=False)
+        preds = m.predict(X.iloc[te])
+        oof_pred[te] = preds
+        y_te = y.iloc[te]
+        r2s.append(float(r2_score(y_te, preds)))
+        maes.append(float(mean_absolute_error(y_te, preds)))
+        rmses.append(float(np.sqrt(mean_squared_error(y_te, preds))))
+    return oof_pred, r2s, maes, rmses
+
 
 def load_training_table(path: Path = cfg.FEATURE_MATRIX) -> pd.DataFrame:
     """Filtered feature matrix rows used for modelling (validates schema)."""
@@ -186,7 +231,7 @@ def plot_ablation_presence_matrix(
     col_headers = [
         "Glycemic\n(G)",
         "Diet comp.\n(Dc)",
-        "Diet temporal\n(Dt)",
+        "Diet temp.\n(Dt)",
         "Personal\n(P)",
         "Interactions\n(I)",
     ]
@@ -242,8 +287,12 @@ def plot_ablation_presence_matrix(
     x_nf = float(x_dots[-1] + 1.2)
     x_r2 = float(x_dots[-1] + 2.55)
 
-    ax.text(x_nf, n_rows + 0.42, "# features", ha="center", fontsize=8, fontweight="bold")
-    ax.text(x_r2, n_rows + 0.42, r"$R^2$ (mean CV)", ha="center", fontsize=8, fontweight="bold")
+    # Column headers (feature blocks + metrics) share one baseline above the dot matrix.
+    y_header = n_rows + 0.06
+    for xi, lab in zip(x_dots, col_headers):
+        ax.text(xi, y_header, lab, ha="center", va="bottom", fontsize=8, fontweight="bold", color=text_color)
+    ax.text(x_nf, y_header, "# features", ha="center", va="bottom", fontsize=8, fontweight="bold", color=text_color)
+    ax.text(x_r2, y_header, r"$R^2$ (mean CV)", ha="center", va="bottom", fontsize=8, fontweight="bold", color=text_color)
 
     for i, (_, row) in enumerate(df.iterrows()):
         y = float(n_rows - 1 - i)
@@ -271,10 +320,10 @@ def plot_ablation_presence_matrix(
         )
 
     ax.set_xlim(x_dots[0] - 2.4, x_r2 + 0.45)
-    ax.set_ylim(-0.75, n_rows + 0.55)
+    ax.set_ylim(-0.75, n_rows + 1.02)
     ax.set_xticks(x_dots)
-    ax.set_xticklabels(col_headers, fontsize=8)
-    ax.tick_params(left=False, labelleft=False, bottom=True)
+    ax.set_xticklabels([])
+    ax.tick_params(left=False, labelleft=False, bottom=False, labelbottom=False)
     for s in ax.spines.values():
         s.set_visible(False)
 
@@ -313,28 +362,19 @@ def ablation(X_full, y, groups, params: dict) -> pd.DataFrame:
             label = " + ".join(combo)
             feature_sets.append((label, feats))
 
-    gkf = GroupKFold(n_splits=cfg.N_FOLDS)
     rows = []
     for label, feats in feature_sets:
         Xs = X_full[feats]
-        r2s, maes, rmses = [], [], []
-        for tr, te in gkf.split(Xs, y, groups):
-            m = xgb.XGBRegressor(**params)
-            m.fit(Xs.iloc[tr], y.iloc[tr], eval_set=[(Xs.iloc[te], y.iloc[te])], verbose=False)
-            preds = m.predict(Xs.iloc[te])
-            y_te = y.iloc[te]
-            r2s.append(r2_score(y_te, preds))
-            maes.append(mean_absolute_error(y_te, preds))
-            rmses.append(np.sqrt(mean_squared_error(y_te, preds)))
+        _, r2s, maes, rmses = groupkfold_xgb_oof_and_fold_metrics(Xs, y, groups, params)
         row = {
             "label": label,
             "n_features": len(feats),
-            "R2_mean": np.mean(r2s),
-            "R2_std": np.std(r2s),
-            "MAE_mean": np.mean(maes),
-            "MAE_std": np.std(maes),
-            "RMSE_mean": np.mean(rmses),
-            "RMSE_std": np.std(rmses),
+            "R2_mean": float(np.mean(r2s)),
+            "R2_std": float(np.std(r2s)),
+            "MAE_mean": float(np.mean(maes)),
+            "MAE_std": float(np.std(maes)),
+            "RMSE_mean": float(np.mean(rmses)),
+            "RMSE_std": float(np.std(rmses)),
         }
         rows.append(row)
         print(
@@ -382,6 +422,11 @@ def parse_args():
     p.add_argument("--shap", action="store_true", help="Run SHAP analysis")
     p.add_argument("--ablation", action="store_true", help="Run ablation study")
     p.add_argument("--all", action="store_true", help="Run everything")
+    p.add_argument(
+        "--plots",
+        action="store_true",
+        help="Regenerate iauc-dist + oof-scatter after training (same CV R²/MAE as ablation)",
+    )
     p.add_argument("--data", type=str, default=None, help="Override data path")
     return p.parse_args()
 
@@ -485,6 +530,20 @@ def main():
     ]
     results_df = results_df[ordered_cols]
     results_df.to_csv(cfg.RESULTS_DIR / "results.csv", index=False)
+
+    with open(LAST_FIT_PARAMS_JSON, "w", encoding="utf-8") as f:
+        json.dump(params_to_jsonable(active_params), f, indent=2)
+    print(f"[params] saved active training params → {LAST_FIT_PARAMS_JSON}")
+
+    if args.tune or args.plots:
+        print("\n" + "═" * 60)
+        print("PUBLICATION PLOTS (iAUC dist, OOF scatter)")
+        print("═" * 60)
+        from research_project.training import plots as training_plots
+
+        training_plots.plot_iauc_distribution()
+        training_plots.run_oof_scatter()
+
     print("\n✓ Pipeline complete. Outputs in:", cfg.OUTPUT_DIR)
 
 
