@@ -31,7 +31,7 @@ from research_project.training.train import load_data
 COLOUR = {
     "G":  "#2166AC",   # blue — glycaemic context
     "Dc": "#D6604D",   # red-orange — diet composition
-    "Dt": "#4DAC26",   # green — diet temporal
+    "T": "#4DAC26",   # green — temporal
     "P":  "#7B2D8B",   # purple — participant covariates
     "I":  "#DDCC77",   # Tol muted gold — interactions
 }
@@ -75,7 +75,7 @@ FEATURE_UNITS = {
     "glucose_at_t_minus_15": _MMOL_L,
     "glucose_at_t_minus_30": _MMOL_L,
     "past_4h_glucose_trend": "mmol/L/h",
-    # DT_COLS — diet temporal
+    # T_COLS — temporal
     "past_3h_cho": _G_PER_MEAL, "past_3h_sugar": _G_PER_MEAL,
     "past_3h_fat": _G_PER_MEAL, "past_3h_prot": _G_PER_MEAL,
     "time_since_last_meal_min": "min",
@@ -102,8 +102,8 @@ def get_feature_group(feat):
         return "Dc"
     elif feat in cfg.G_COLS:
         return "G"
-    elif feat in cfg.DT_COLS:
-        return "Dt"
+    elif feat in cfg.T_COLS:
+        return "T"
     elif feat in cfg.P_COLS:
         return "P"
     elif feat in cfg.INTERACTION_COLS:

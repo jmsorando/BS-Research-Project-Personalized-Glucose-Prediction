@@ -79,7 +79,7 @@ def compute_oof_predictions() -> tuple[pd.DataFrame, float, float]:
 
     Uses the same CV loop as ``train.ablation`` (``groupkfold_xgb_oof_and_fold_metrics``)
     and the same hyperparameters as the last ``rp-train`` (``last_fit_params.json``) so
-    mean CV R²/MAE match the matrix row ``Dc + G + Dt + P + I`` from that run.
+    mean CV R²/MAE match the matrix row ``Dc + G + T + P`` from that run.
     """
     X, y, groups = load_data()
     groups_arr = groups.to_numpy()

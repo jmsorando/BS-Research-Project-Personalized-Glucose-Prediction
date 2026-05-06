@@ -32,7 +32,7 @@ flowchart LR
     D --> E
     E --> F["corrected_meal_times_ALL.csv"]
     F --> G["Feature engineering\n(rp-build-feature-matrix)"]
-    G --> H["feature_matrix.csv\n(2,228 rows × 96 cols)"]
+    G --> H["feature_matrix.csv\n(~2.2k rows × 104 cols)"]
     H --> I["XGBoost\n(GroupKFold CV)"]
     I --> J["CV metrics\n+ SHAP + ablation"]
 ```
@@ -61,7 +61,7 @@ RP Cleaning 5/
 │   └── MyFood24 ID Matched(Sheet1).csv  # Participant ↔ MyFood24 ID mapping
 │
 ├── output/                          # Pipeline outputs (Stages 1–3)
-│   ├── feature_matrix.csv           # XGBoost-ready matrix (2,228 rows, 96 columns)
+│   ├── feature_matrix.csv           # XGBoost-ready matrix (~2.2k rows, 104 columns)
 │   ├── corrected_meal_times_ALL.csv # 5,200 meal events with CGM-corrected times
 │   ├── patient_extract1602_realigned.csv  # Realigned food diary
 │   ├── processing_report.csv        # Per-participant match summary (105 rows)
@@ -147,15 +147,14 @@ new participant drops.
 
 ## Feature Groups
 
-The feature matrix contains 96 columns total. Of those, 87 are model features organised into five groups (plus an interaction set), with 6 leakage columns reserved for validation only.
+The feature matrix contains 104 columns total. Of those, 60 are model features organised into four groups, with 6 leakage columns reserved for validation only. Hand-crafted interaction terms (`cho_x_*`, etc.) are still computed in the matrix CSV but excluded from training: XGBoost discovers these relationships via tree splits, and keeping them out avoids splitting SHAP attribution away from parent features (e.g. CHO, baseline glucose). The **temporal** group keeps three features — `past_3h_cho` (second-meal CHO carryover), `time_since_last_meal_min` (recency), and `hour_of_day` (circadian). Dropped from the model (still in the CSV): `past_3h_sugar` (subset information vs. CHO), `past_3h_fat`, `past_3h_prot`. The label was changed from “diet temporal” to “temporal” because two of the three retained features are not diet-derived.
 
 | Group | Code | Count | Description |
 |-------|------|------:|-------------|
-| Diet composition | **Dc** | 34 + 12 | 34 raw nutrients (CHO, FAT, PROT, KCALS, micronutrients, etc.) + 12 derived ratios (fat_cho_ratio, fibre_cho_ratio, glycaemic_brake, etc.) |
-| Glycaemic context | **G** | 14 | Pre-meal CGM state: baseline_glucose_mmol, past_4h_glucose_trend, 1h stats, 24h variability metrics (MAGE, CONGA, MODD, CV) |
-| Diet temporal | **Dt** | 12 | past_3h_kcal, time_since_last_meal_min, hour_of_day, meal-type flags |
-| Participant | **P** | 5 | sex, n_total_meals, n_days_tracked, mean_daily_kcal, mean_daily_cho |
-| Interactions | **I** | 10 | Engineered cross-terms: CHO × baseline glucose, CHO × fibre, MAGE × baseline, etc. |
+| Diet composition | **Dc** | 34 + 10 | 34 raw nutrients (CHO, FAT, PROT, KCALS, micronutrients, etc.) + 10 derived ratios (fat_cho_ratio, fibre_cho_ratio, glycaemic_brake, etc.) |
+| Glycaemic context | **G** | 12 | Pre-meal CGM state: baseline_glucose_mmol, past_4h_glucose_trend, 1h stats, 24h variability metrics (MAGE, CONGA, MODD, CV) |
+| Temporal | **T** | 3 | past_3h_cho (second-meal carryover), time_since_last_meal_min (temporal modifier), hour_of_day (circadian) |
+| Participant | **P** | 1 | sex |
 | **Leakage** | -- | 6 | **NEVER use as features:** iAUC_mmol_h, excursion_rise_mmol, peak_glucose_mmol, etc. |
 
 Feature lists are defined in `src/research_project/config.py` — import `research_project.config` as the single source of truth for all column names.
@@ -174,7 +173,7 @@ participant-specific bias and contextual over-conditioning; see
 | Algorithm | XGBoost regressor (`xgboost.XGBRegressor`) |
 | Validation | 10-fold **GroupKFold** (split by `participant_id` — no data leakage across participants) |
 | Metrics | MAE, RMSE, R² |
-| Row filter | `iauc_status == "ok"` → ~2,215 usable rows from 2,228 total |
+| Row filter | `iauc_status == "ok"` → ~2,150 usable rows from ~2,170 with computed iAUC |
 | Encoding | `sex`: Male → 0, Female → 1 (only manual encoding; XGBoost handles NaN natively) |
 | Baseline hyperparams | Defined in `research_project.config.BASELINE_PARAMS` |
 | Optuna HPO | 100 trials, TPE sampler; search space in `research_project.config.OPTUNA_SEARCH_SPACE` |
@@ -186,7 +185,7 @@ participant-specific bias and contextual over-conditioning; see
 | *(none)* | Baseline 10-fold CV + train final model | ~4 min |
 | `--tune` | + Optuna hyperparameter optimisation (100 trials) | ~40–80 min |
 | `--shap` | + SHAP summary and top-4 dependence plots | ~5 min |
-| `--ablation` | + Feature-group ablation (all 31 non-empty combos of Dc, G, Dt, P, I) | ~15–30 min |
+| `--ablation` | + Feature-group ablation (all 15 non-empty combos of Dc, G, T, P) | ~10–20 min |
 | `--all` | All of the above | ~90–120 min |
 | `--data PATH` | Override the default `feature_matrix.csv` path | — |
 
@@ -197,7 +196,7 @@ participant-specific bias and contextual over-conditioning; see
 3. **Tuning** *(optional)* — Optuna Bayesian search, save best params to `best_params.json`
 4. **Final model** — retrain on all data with the active params, save to `final_model.ubj`
 5. **SHAP** *(optional)* — TreeExplainer values, beeswarm + dependence plots
-6. **Ablation** *(optional)* — CV for every non-empty subset of the five feature blocks (31 rows), bar chart + presence matrix + `ablation_by_feature_group.csv`
+6. **Ablation** *(optional)* — CV for every non-empty subset of the four feature blocks (15 rows), bar chart + presence matrix + `ablation_by_feature_group.csv`
 
 ---
 
@@ -209,12 +208,12 @@ The ablation study reveals that pre-meal glycaemic context dominates prediction,
 
 | Feature Set | n Features | R² (mean ± SD) |
 |-------------|----------:|----------------|
-| G only | 14 | ~+0.15 |
-| Dc only | 46 | ~−0.004 |
-| Dt only | 12 | ~−0.011 |
-| G + Dc + Dt + P + I (full) | 87 | modest improvement over G alone |
+| G only | 12 | ~+0.15 |
+| Dc only | 44 | ~−0.004 |
+| T only | 3 | ~−0.011 |
+| G + Dc + T + P (full) | 60 | modest improvement over G alone |
 
-Diet composition (Dc) and temporal diet (Dt) features perform worse than predicting the population mean when used in isolation, but contribute marginally when combined with glycaemic context. SHAP analysis at the feature level explains this finding — baseline glucose and glucose variability metrics dominate the SHAP importance ranking, while individual nutrient features have near-zero mean absolute SHAP values.
+Diet composition (Dc) and temporal (T) features perform worse than predicting the population mean when used in isolation, but contribute marginally when combined with glycaemic context. SHAP analysis at the feature level explains this finding — baseline glucose and glucose variability metrics dominate the SHAP importance ranking, while individual nutrient features have near-zero mean absolute SHAP values.
 
 > Actual ablation scores are saved to `training_outputs/results/results.csv` after each run.
 
@@ -224,7 +223,7 @@ Diet composition (Dc) and temporal diet (Dt) features perform worse than predict
 
 | File | Included in repo | Notes |
 |------|:---:|-------|
-| `output/feature_matrix.csv` | Yes (gittracked) | 2,228 rows × 96 columns; contains participant-level data |
+| `output/feature_matrix.csv` | Yes (gittracked) | ~2.2k rows × 104 columns; contains participant-level data |
 | `source/` (CGM + diary) | Yes | Raw input data for the upstream pipeline |
 | `training_outputs/` | Partially | Model, SHAP values, and plots are generated at runtime |
 

@@ -128,6 +128,13 @@ def _compute_iauc(cgm_window, g0):
     return iauc
 
 
+def _normalise_date(d):
+    try:
+        return pd.Timestamp(d).strftime("%Y-%m-%d")
+    except Exception:
+        return None
+
+
 def _nearest_glucose(cgm, target_utc, max_snap_min=3):
     if cgm is None or len(cgm) == 0:
         return np.nan
@@ -137,13 +144,6 @@ def _nearest_glucose(cgm, target_utc, max_snap_min=3):
     if snap > max_snap_min:
         return np.nan
     return cgm.loc[idx, "glucose"]
-
-
-def _normalise_date(d):
-    try:
-        return pd.Timestamp(d).strftime("%Y-%m-%d")
-    except Exception:
-        return None
 
 
 def _compute_mage(gl):
@@ -412,12 +412,12 @@ def step4_glycaemic_features(df, cgm_cache):
         "mean_glucose_24h",
         "sd_glucose_24h",
         "cv_glucose_24h",
-        "glucose_at_t_minus_15",
-        "glucose_at_t_minus_30",
         "mage_24h",
         "conga1_24h",
         "conga2_24h",
         "modd_24h",
+        "glucose_at_t_minus_15",
+        "glucose_at_t_minus_30",
     ]
     for c in g_cols:
         df[c] = np.nan
@@ -482,7 +482,7 @@ def step4_glycaemic_features(df, cgm_cache):
 
 
 def step5_diet_temporal(df, all_meals):
-    print("\n  Step 5: Diet Temporal Features (Dt)")
+    print("\n  Step 5: Temporal Features (T)")
     print("  " + "-" * 40)
     dt_cols = [
         "past_3h_kcal",

@@ -26,7 +26,7 @@ from research_project import config as cfg
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 # Label for the ablation row that uses every feature group (same columns as ``load_data`` X).
-FULL_FEATURE_GROUP_ABLATION_LABEL = "Dc + G + Dt + P + I"
+FULL_FEATURE_GROUP_ABLATION_LABEL = "Dc + G + T + P"
 LAST_FIT_PARAMS_JSON = cfg.RESULTS_DIR / "last_fit_params.json"
 
 
@@ -208,13 +208,12 @@ def run_shap(model, X):
 
 
 def _feature_group_blocks():
-    """Ordered codes match README: Dc, G, Dt, P, I."""
+    """Ordered codes match README: Dc, G, T, P."""
     return (
         ("Dc", cfg.DC_RAW + cfg.DC_RATIOS),
         ("G", cfg.G_COLS),
-        ("Dt", cfg.DT_COLS),
+        ("T", cfg.T_COLS),
         ("P", cfg.P_COLS),
-        ("I", cfg.INTERACTION_COLS),
     )
 
 
@@ -224,25 +223,24 @@ def plot_ablation_presence_matrix(
     n_samples: int,
 ) -> None:
     """
-    Matrix-style ablation table: presence dots per feature block, # features, R² (CV mean).
-    Rows sorted by R² descending (best at top). Mirrors common ablation summary figures.
+    Matrix-style ablation table: presence dots per feature block, # features,
+    R² (CV mean), MAE (CV mean). Rows sorted by R² descending.
     """
-    matrix_order = ["G", "Dc", "Dt", "P", "I"]
+    matrix_order = ["G", "Dc", "T", "P"]
     col_headers = [
         "Glycemic\n(G)",
         "Diet comp.\n(Dc)",
-        "Diet temp.\n(Dt)",
+        "Temporal\n(T)",
         "Personal\n(P)",
-        "Interactions\n(I)",
     ]
 
     df = results.sort_values("R2_mean", ascending=False).reset_index(drop=True)
     n_rows = len(df)
     text_color = "#1a1a1a"
 
-    fig_w, fig_h = 10.0, max(6.0, 0.32 * n_rows + 2.4)
+    fig_w, fig_h = 11.0, max(6.0, 0.32 * n_rows + 2.4)
     fig = plt.figure(figsize=(fig_w, fig_h))
-    ax = fig.add_axes([0.07, 0.06, 0.68, 0.78])
+    ax = fig.add_axes([0.07, 0.06, 0.72, 0.78])
 
     dx = 1.0
     x_dots = np.arange(len(matrix_order), dtype=float) * dx
@@ -286,6 +284,7 @@ def plot_ablation_presence_matrix(
 
     x_nf = float(x_dots[-1] + 1.2)
     x_r2 = float(x_dots[-1] + 2.55)
+    x_mae = float(x_dots[-1] + 3.90)
 
     # Column headers (feature blocks + metrics) share one baseline above the dot matrix.
     y_header = n_rows + 0.06
@@ -293,6 +292,7 @@ def plot_ablation_presence_matrix(
         ax.text(xi, y_header, lab, ha="center", va="bottom", fontsize=8, fontweight="bold", color=text_color)
     ax.text(x_nf, y_header, "# features", ha="center", va="bottom", fontsize=8, fontweight="bold", color=text_color)
     ax.text(x_r2, y_header, r"$R^2$ (mean CV)", ha="center", va="bottom", fontsize=8, fontweight="bold", color=text_color)
+    ax.text(x_mae, y_header, "MAE (mean CV)", ha="center", va="bottom", fontsize=8, fontweight="bold", color=text_color)
 
     for i, (_, row) in enumerate(df.iterrows()):
         y = float(n_rows - 1 - i)
@@ -318,8 +318,19 @@ def plot_ablation_presence_matrix(
             color=text_color,
             fontweight="bold",
         )
+        vmae = float(row["MAE_mean"])
+        ax.text(
+            x_mae,
+            y,
+            f"{vmae:.2f}",
+            ha="center",
+            va="center",
+            fontsize=9,
+            color=text_color,
+            fontweight="bold",
+        )
 
-    ax.set_xlim(x_dots[0] - 2.4, x_r2 + 0.45)
+    ax.set_xlim(x_dots[0] - 2.4, x_mae + 0.45)
     ax.set_ylim(-0.75, n_rows + 1.02)
     ax.set_xticks(x_dots)
     ax.set_xticklabels([])
@@ -337,7 +348,7 @@ def plot_ablation_presence_matrix(
         va="top",
     )
 
-    leg = fig.add_axes([0.80, 0.38, 0.18, 0.12])
+    leg = fig.add_axes([0.83, 0.38, 0.15, 0.12])
     leg.set_axis_off()
     leg.scatter([0.06], [0.72], s=70, c=present_fc, edgecolors=present_ec, transform=leg.transAxes)
     leg.text(0.14, 0.72, "Feature set present", transform=leg.transAxes, va="center", fontsize=8)
@@ -395,7 +406,7 @@ def ablation(X_full, y, groups, params: dict) -> pd.DataFrame:
     ax.set_yticks(y_pos)
     ax.set_yticklabels(results.label, fontsize=8)
     ax.set_xlabel("R² (10-fold GroupKFold CV)")
-    ax.set_title("Ablation — all feature-group combinations (Dc, G, Dt, P, I)")
+    ax.set_title("Ablation — all feature-group combinations (Dc, G, T, P)")
     xmax = max(results.R2_mean.max() + results.R2_std.max(), 0.05)
     for i, row in results.iterrows():
         ax.text(min(row.R2_mean + row.R2_std, xmax) + 0.005, i, f"{row.R2_mean:+.3f}", va="center", fontsize=7)

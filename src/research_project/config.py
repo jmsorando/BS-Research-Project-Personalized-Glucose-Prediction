@@ -105,11 +105,8 @@ G_COLS = [
     "glucose_at_t_minus_30",
 ]
 
-DT_COLS = [
+T_COLS = [
     "past_3h_cho",
-    "past_3h_sugar",
-    "past_3h_fat",
-    "past_3h_prot",
     "time_since_last_meal_min",
     "hour_of_day",
 ]
@@ -139,7 +136,7 @@ LEAKAGE_COLS = [
     "glucose_at_120min_mmol",
 ]
 
-ALL_FEATURES = DC_RAW + DC_RATIOS + G_COLS + DT_COLS + P_COLS + INTERACTION_COLS
+ALL_FEATURES = DC_RAW + DC_RATIOS + G_COLS + T_COLS + P_COLS
 
 INTENTIONALLY_EXCLUDED_MODEL_COLS = [
     "n_total_meals",
@@ -157,7 +154,10 @@ INTENTIONALLY_EXCLUDED_MODEL_COLS = [
     "fat_cho_ratio",
     "fibre_cho_ratio",
     "cv_x_hour_of_day",
-]
+    "past_3h_sugar",
+    "past_3h_fat",
+    "past_3h_prot",
+] + list(INTERACTION_COLS)
 
 
 def discover_latest_extract(source_dir: Path = SOURCE_DIR) -> Path:
