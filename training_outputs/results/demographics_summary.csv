@@ -1,0 +1,24 @@
+Variable,Category,Value
+N total,—,68
+Age (years),—,37.6 ± 9.3 (n=63)
+Height (cm),—,171.8 ± 9.0 (n=62)
+Weight (kg),—,76.7 ± 17.0 (n=61)
+BMI (kg/m²),—,25.9 ± 4.6 (n=60)
+Sex,Female,40
+Sex,Male,27
+Sex,1 (raw),1
+Ethnicity,"White - English, Scottish, Welsh or Northern Irish",35
+Ethnicity,White - European/EU/EEA,15
+Ethnicity,__other,4
+Ethnicity,Asian/Asian British - Indian,3
+Ethnicity,Arab/Arab British,1
+Ethnicity,Black/Black British - African,1
+Ethnicity,Asian/Asian British - Pakistani,1
+Ethnicity,Mixed/Multiple ethnic groups - White and Arab,1
+Ethnicity,"Any other Black, Black British, African or Caribbean background",1
+Ethnicity,Any other Asian Background,1
+Ethnicity,Missing,5
+Occupation,Healthcare,30
+Occupation,Law enforcement,28
+Occupation,Emergency,5
+Occupation,Missing,5
