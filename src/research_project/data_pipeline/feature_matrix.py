@@ -6,6 +6,7 @@ Each row is one glucose excursion and target is 2h postprandial iAUC.
 """
 from collections import Counter
 from datetime import timedelta
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -22,60 +23,16 @@ SENTINEL_LOW = 2.2
 SENTINEL_HIGH = 22.2
 MAX_NADIR_SNAP = 10
 GAP_FLAG_MIN = 15
-NUTRIENT_COLS = [
-    "totalVeg",
-    "totalFruit",
-    "WATER",
-    "PROT",
-    "FAT",
-    "CHO",
-    "KCALS",
-    "KJ",
-    "STAR",
-    "OLIGO",
-    "TOTSUG",
-    "GLUC",
-    "GALACT",
-    "FRUCT",
-    "SUCR",
-    "MALT",
-    "LACT",
-    "ALCO",
-    "ENGFIB",
-    "AOACFIB",
-    "SATFAC",
-    "TOTn6PFAC",
-    "TOTn3PFAC",
-    "MONOFACc",
-    "POLYFACc",
-    "FACTRANS",
-    "MG",
-    "FE",
-    "ZN",
-    "MN",
-    "SE",
-    "VITD",
-    "FREE_SUGAR",
-    "ADDED_SUGAR",
-    "CAFF",
-]
+# Enrichment pulls the full configured Dc raw block.
+NUTRIENT_COLS = list(cfg.DC_RAW)
 
 # CSV schema: model features from cfg plus pipeline-only / validation / stratification columns.
-G_FEATURE_MATRIX_COLS = list(cfg.G_COLS) + ["past_1h_glucose_range", "cv_glucose_24h"]
-DC_RATIO_FEATURE_MATRIX_COLS = [
-    "starch_fraction",
-    "sugar_fraction",
-    "free_sugar_fraction",
-    "rapid_glucose_equiv",
-    "intrinsic_sugar",
-    "fat_cho_ratio",
-    "protein_cho_ratio",
-    "fibre_cho_ratio",
-    "fat_sugar_ratio",
-    "protein_sugar_ratio",
-    "glycaemic_brake",
-    "n6_n3_ratio",
+# baseline_glucose_mmol is emitted in quality_cols (step 3), not repeated here.
+G_FEATURE_MATRIX_COLS = [c for c in cfg.G_COLS if c != "baseline_glucose_mmol"] + [
+    "past_1h_glucose_range",
+    "cv_glucose_24h",
 ]
+DC_RATIO_FEATURE_MATRIX_COLS = []
 DT_FEATURE_MATRIX_COLS = [
     "past_3h_kcal",
     "past_3h_cho",
@@ -90,7 +47,19 @@ DT_FEATURE_MATRIX_COLS = [
     "is_dinner",
     "is_snack",
 ]
-INTERACTION_FEATURE_MATRIX_COLS = list(cfg.INTERACTION_COLS) + ["cv_x_hour_of_day"]
+INTERACTION_FEATURE_MATRIX_COLS = []
+
+
+def _to_float_series(s: pd.Series) -> pd.Series:
+    """Narrow pd.to_numeric for type checkers (pandas 3 stubs)."""
+    return cast(pd.Series, pd.to_numeric(s, errors="coerce"))
+
+
+def _scalar_float_from_numeric(val: object) -> float:
+    """Single-cell numeric coercion with stable typing for pyright."""
+    num = cast(pd.Series, pd.to_numeric(pd.Series([val]), errors="coerce"))
+    v = num.iloc[0]
+    return float(v) if pd.notna(v) else np.nan
 
 
 def _parse_tz_offset(s):
@@ -143,7 +112,10 @@ def _nearest_glucose(cgm, target_utc, max_snap_min=3):
     snap = diffs.loc[idx].total_seconds() / 60
     if snap > max_snap_min:
         return np.nan
-    return cgm.loc[idx, "glucose"]
+    v = cgm.loc[idx, "glucose"]
+    if pd.isna(v):
+        return np.nan
+    return round(float(v), 4)
 
 
 def _compute_mage(gl):
@@ -243,11 +215,11 @@ def step1_nutrient_enrichment(meals, extract):
             continue
         for col in NUTRIENT_COLS:
             if col in extract.columns:
-                vals = pd.to_numeric(extract.loc[matched_rows, col], errors="coerce")
-                meals.loc[idx, col] = round(vals.sum(), 4)
+                vals = _to_float_series(extract.loc[matched_rows, col])
+                meals.loc[idx, col] = round(float(vals.sum()), 4)
         n_success += 1
-        enriched_cho = meals.loc[idx, "CHO"]
-        orig_cho = pd.to_numeric(meals.loc[idx, "total_CHO"], errors="coerce")
+        enriched_cho = _scalar_float_from_numeric(meals.loc[idx, "CHO"])
+        orig_cho = _scalar_float_from_numeric(meals.loc[idx, "total_CHO"])
         if not np.isnan(enriched_cho) and not np.isnan(orig_cho):
             if abs(enriched_cho - orig_cho) > 5:
                 n_mismatch += 1
@@ -281,12 +253,12 @@ def step2_aggregate_stacking(meals):
             n_stacked_groups += 1
             for col in NUTRIENT_COLS:
                 if col in grp.columns:
-                    vals = pd.to_numeric(grp[col], errors="coerce")
-                    row[col] = round(vals.sum(), 4)
+                    vals = _to_float_series(grp[col])
+                    row[col] = round(float(vals.sum()), 4)
             row["food_items"] = "; ".join(grp["food_items"].dropna().astype(str))
             row["meal_label"] = " + ".join(grp["meal_label"].dropna().astype(str))
             row["event_id"] = "; ".join(grp["event_id"].dropna().astype(str))
-            row["n_items"] = pd.to_numeric(grp["n_items"], errors="coerce").sum()
+            row["n_items"] = float(_to_float_series(grp["n_items"]).sum())
         row["n_meals_in_excursion"] = len(grp)
         grouped_rows.append(row)
     df_exc = pd.DataFrame(grouped_rows)
@@ -550,18 +522,18 @@ def step5_diet_temporal(df, all_meals):
 def step6_derived_ratios(df):
     print("\n  Step 6: Derived Nutrient Ratios (Dc enrichment)")
     print("  " + "-" * 40)
-    cho = pd.to_numeric(df["CHO"], errors="coerce").fillna(0)
-    totsug = pd.to_numeric(df["TOTSUG"], errors="coerce").fillna(0)
-    star = pd.to_numeric(df["STAR"], errors="coerce").fillna(0)
-    free_sug = pd.to_numeric(df["FREE_SUGAR"], errors="coerce").fillna(0)
-    gluc = pd.to_numeric(df["GLUC"], errors="coerce").fillna(0)
-    sucr = pd.to_numeric(df["SUCR"], errors="coerce").fillna(0)
-    malt = pd.to_numeric(df["MALT"], errors="coerce").fillna(0)
-    fat = pd.to_numeric(df["FAT"], errors="coerce").fillna(0)
-    prot = pd.to_numeric(df["PROT"], errors="coerce").fillna(0)
-    fibre = pd.to_numeric(df["AOACFIB"], errors="coerce").fillna(0)
-    n6 = pd.to_numeric(df["TOTn6PFAC"], errors="coerce").fillna(0)
-    n3 = pd.to_numeric(df["TOTn3PFAC"], errors="coerce").fillna(0)
+    cho = _to_float_series(df["CHO"]).fillna(0)
+    totsug = _to_float_series(df["TOTSUG"]).fillna(0)
+    star = _to_float_series(df["STAR"]).fillna(0)
+    free_sug = _to_float_series(df["FREE_SUGAR"]).fillna(0)
+    gluc = _to_float_series(df["GLUC"]).fillna(0)
+    sucr = _to_float_series(df["SUCR"]).fillna(0)
+    malt = _to_float_series(df["MALT"]).fillna(0)
+    fat = _to_float_series(df["FAT"]).fillna(0)
+    prot = _to_float_series(df["PROT"]).fillna(0)
+    fibre = _to_float_series(df["AOACFIB"]).fillna(0)
+    n6 = _to_float_series(df["TOTn6PFAC"]).fillna(0)
+    n3 = _to_float_series(df["TOTn3PFAC"]).fillna(0)
     cho_safe = cho.clip(lower=0.1)
     totsug_safe = totsug.clip(lower=0.1)
     cho_safe_1 = cho.clip(lower=1.0)
@@ -656,8 +628,6 @@ def main():
     df, cgm_cache = step3_compute_iauc(df, cgm_cache, cgm_files)
     df = step4_glycaemic_features(df, cgm_cache)
     df = step5_diet_temporal(df, all_meals)
-    df = step6_derived_ratios(df)
-    df = compute_interaction_features(df)
     df = step7_participant_features(df, all_meals, sex_map)
     print("\n  Assembling output...")
     if "event_id" in df.columns:

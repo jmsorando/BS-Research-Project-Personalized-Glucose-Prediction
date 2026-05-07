@@ -32,7 +32,7 @@ flowchart LR
     D --> E
     E --> F["corrected_meal_times_ALL.csv"]
     F --> G["Feature engineering\n(rp-build-feature-matrix)"]
-    G --> H["feature_matrix.csv\n(~2.2k rows × 104 cols)"]
+    G --> H["feature_matrix.csv\n(~2.2k rows × 110 cols)"]
     H --> I["XGBoost\n(GroupKFold CV)"]
     I --> J["CV metrics\n+ SHAP + ablation"]
 ```
@@ -42,7 +42,7 @@ flowchart LR
 ## Repository Structure
 
 ```
-RP Cleaning 5/
+ BSc Research Project/
 │
 ├── pyproject.toml                   # Package metadata, dependencies, CLI entry points (`rp-*`)
 ├── requirements.txt                 # Editable install: `pip install -r requirements.txt` → `-e .`
@@ -61,7 +61,7 @@ RP Cleaning 5/
 │   └── MyFood24 ID Matched(Sheet1).csv  # Participant ↔ MyFood24 ID mapping
 │
 ├── output/                          # Pipeline outputs (Stages 1–3)
-│   ├── feature_matrix.csv           # XGBoost-ready matrix (~2.2k rows, 104 columns)
+│   ├── feature_matrix.csv           # XGBoost-ready matrix (~2.2k rows, 110 columns)
 │   ├── corrected_meal_times_ALL.csv # 5,200 meal events with CGM-corrected times
 │   ├── patient_extract1602_realigned.csv  # Realigned food diary
 │   ├── processing_report.csv        # Per-participant match summary (105 rows)
@@ -147,7 +147,7 @@ new participant drops.
 
 ## Feature Groups
 
-The feature matrix contains 104 columns total. Of those, 60 are model features organised into four groups, with 6 leakage columns reserved for validation only. Hand-crafted interaction terms (`cho_x_*`, etc.) are still computed in the matrix CSV but excluded from training: XGBoost discovers these relationships via tree splits, and keeping them out avoids splitting SHAP attribution away from parent features (e.g. CHO, baseline glucose). The **temporal** group keeps three features — `past_3h_cho` (second-meal CHO carryover), `time_since_last_meal_min` (recency), and `hour_of_day` (circadian). Dropped from the model (still in the CSV): `past_3h_sugar` (subset information vs. CHO), `past_3h_fat`, `past_3h_prot`. The label was changed from “diet temporal” to “temporal” because two of the three retained features are not diet-derived.
+The feature matrix contains 110 columns total (after `rp-build-feature-matrix` with the current schema). Of those, 60 are model features organised into four groups, with 6 leakage columns reserved for validation only. Hand-crafted interaction terms (`cho_x_*`, etc.) are still computed in the matrix CSV but excluded from training: XGBoost discovers these relationships via tree splits, and keeping them out avoids splitting SHAP attribution away from parent features (e.g. CHO, baseline glucose). The **temporal** group keeps three features — `past_3h_cho` (second-meal CHO carryover), `time_since_last_meal_min` (recency), and `hour_of_day` (circadian). Dropped from the model (still in the CSV): `past_3h_sugar` (subset information vs. CHO), `past_3h_fat`, `past_3h_prot`. The label was changed from “diet temporal” to “temporal” because two of the three retained features are not diet-derived.
 
 | Group | Code | Count | Description |
 |-------|------|------:|-------------|
@@ -223,7 +223,7 @@ Diet composition (Dc) and temporal (T) features perform worse than predicting th
 
 | File | Included in repo | Notes |
 |------|:---:|-------|
-| `output/feature_matrix.csv` | Yes (gittracked) | ~2.2k rows × 104 columns; contains participant-level data |
+| `output/feature_matrix.csv` | Yes (gittracked) | ~2.2k rows × 110 columns; contains participant-level data |
 | `source/` (CGM + diary) | Yes | Raw input data for the upstream pipeline |
 | `training_outputs/` | Partially | Model, SHAP values, and plots are generated at runtime |
 
