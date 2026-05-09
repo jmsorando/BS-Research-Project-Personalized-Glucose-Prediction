@@ -4,6 +4,14 @@ rp-pipeline -- run the full research-project pipeline in one command.
 Default (no flags):  realign > build-realigned-source > feature-matrix > train
 Add --plots, --shap, --ablation, --tune for optional stages, or --all for everything.
 Use --skip-to STAGE to resume from a specific stage.
+
+Orchestration notes (avoid duplicate work):
+- When ``--tune`` runs ``train``, that stage already regenerates publication figures
+  (iAUC distribution + OOF scatter); the separate ``plots`` stage is skipped in that case.
+- When ``--shap`` is set, the full SHAP report runs as the ``shap`` stage only;
+  ``train`` is not given ``--shap`` (which would duplicate TreeExplainer work and
+  overlap with figures 01–02 under ``plots/shap/``). Use ``rp-train --shap`` alone
+  for the lightweight flat ``shap_summary.png`` + ``shap_dependence_top4.png`` only.
 """
 
 import argparse
@@ -18,6 +26,44 @@ STAGES = [
     "plots",
     "shap",
 ]
+
+
+def resolve_pipeline_plan(
+    skip_to: str | None,
+    tune: bool,
+    plots: bool,
+    shap: bool,
+) -> list[str]:
+    """
+    Ordered stages to run after de-duplication rules.
+
+    Callers must expand ``--all`` on the argparse namespace *before* calling this
+    (set tune, plots, shap, ablation all True). Ablation only affects ``train`` flags,
+    not stage order.
+    """
+    start = STAGES.index(skip_to) if skip_to else 0
+
+    active: set[str] = set(STAGES[start:4])
+    if plots or start == STAGES.index("plots"):
+        active.add("plots")
+    if shap or start >= STAGES.index("shap"):
+        active.add("shap")
+
+    plan = [s for s in STAGES[start:] if s in active]
+    # train already runs publication plots when --tune (see train.main)
+    if tune and "train" in plan:
+        plan = [s for s in plan if s != "plots"]
+    return plan
+
+
+def train_argv_for_pipeline(tune: bool, ablation: bool) -> list[str]:
+    """``sys.argv`` fragment for ``research_project.training.train:main`` (pipeline only)."""
+    argv = ["rp-train"]
+    if tune:
+        argv.append("--tune")
+    if ablation:
+        argv.append("--ablation")
+    return argv
 
 
 def _banner(name: str) -> None:
@@ -47,7 +93,7 @@ def main() -> None:
     )
     p.add_argument("--tune", action="store_true", help="Enable Optuna tuning in train stage")
     p.add_argument("--plots", action="store_true", help="Run publication plots after training")
-    p.add_argument("--shap", action="store_true", help="Run SHAP report after training")
+    p.add_argument("--shap", action="store_true", help="Run full SHAP report after training")
     p.add_argument("--ablation", action="store_true", help="Run ablation study in train stage")
     p.add_argument("--all", action="store_true", help="Enable every optional stage and flag")
     args = p.parse_args()
@@ -55,18 +101,12 @@ def main() -> None:
     if args.all:
         args.tune = args.plots = args.shap = args.ablation = True
 
-    # Determine which stages to run
-    start = STAGES.index(args.skip_to) if args.skip_to else 0
-
-    # Core stages (realign through train) are always active when in range.
-    # Optional post-training stages are active if flagged OR if --skip-to targets them.
-    active = set(STAGES[start:4])
-    if args.plots or start == STAGES.index("plots"):
-        active.add("plots")
-    if args.shap or start >= STAGES.index("shap"):
-        active.add("shap")
-
-    plan = [s for s in STAGES[start:] if s in active]
+    plan = resolve_pipeline_plan(
+        args.skip_to,
+        args.tune,
+        args.plots,
+        args.shap,
+    )
 
     print("Pipeline plan:", " > ".join(plan))
     print()
@@ -89,15 +129,7 @@ def main() -> None:
 
     # --- training -----------------------------------------------------
     if "train" in plan:
-        # Build sys.argv for train's own argparse
-        train_argv = ["rp-train"]
-        if args.tune:
-            train_argv.append("--tune")
-        if args.shap:
-            train_argv.append("--shap")
-        if args.ablation:
-            train_argv.append("--ablation")
-
+        train_argv = train_argv_for_pipeline(args.tune, args.ablation)
         saved = sys.argv
         sys.argv = train_argv
         try:

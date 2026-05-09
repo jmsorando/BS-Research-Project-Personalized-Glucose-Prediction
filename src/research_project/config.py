@@ -170,8 +170,6 @@ DC_RAW = [
     "CAFF",
 ]
 
-DC_RATIOS = []
-
 G_COLS = [
     "baseline_glucose_mmol",
     "past_4h_glucose_trend",
@@ -213,8 +211,6 @@ SLEEP_NIGHTLY_COLS = [
 SLEEP_TRAIT_COLS = ["psqi_scored", "csm_total"]
 SLEEP_COLS = SLEEP_NIGHTLY_COLS + SLEEP_TRAIT_COLS
 
-INTERACTION_COLS = []
-
 LEAKAGE_COLS = [
     "iAUC_mmol_h",
     "excursion_rise_mmol",
@@ -224,7 +220,7 @@ LEAKAGE_COLS = [
     "glucose_at_120min_mmol",
 ]
 
-ALL_FEATURES = DC_RAW + DC_RATIOS + G_COLS + T_COLS + P_COLS + SLEEP_COLS
+ALL_FEATURES = DC_RAW + G_COLS + T_COLS + P_COLS + SLEEP_COLS
 
 INTENTIONALLY_EXCLUDED_MODEL_COLS = [
     "n_total_meals",

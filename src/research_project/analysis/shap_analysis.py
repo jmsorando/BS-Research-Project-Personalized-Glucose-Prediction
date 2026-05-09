@@ -2,6 +2,10 @@
 Comprehensive SHAP analysis for the iAUC XGBoost model.
 Produces summary tables plus figures 01–04 (CV fold stability is CSV-only, between figs 03 and 04).
 
+``rp-pipeline --shap`` / ``--all`` runs this module only (not ``rp-train --shap``), to avoid
+duplicate TreeExplainer runs. For a quick flat ``shap_summary.png`` + ``shap_dependence_top4.png``
+without analyses 03–04, use ``rp-train --shap`` alone.
+
 After `pip install -e .`:
     rp-shap-report
     # or: python -m research_project.analysis.shap_analysis
@@ -33,9 +37,7 @@ COLOUR = {
     "Dc": "#D6604D",   # red-orange — diet composition
     "T": "#4DAC26",   # green — temporal
     "P":  "#7B2D8B",   # purple — participant covariates
-    "S":  "#80b1d3",   # light blue — nightly sleep / HRV
-    "St": "#fb9a99",   # light red — sleep trait (PSQI, chronotype)
-    "I":  "#DDCC77",   # Tol muted gold — interactions
+    "S":  "#80b1d3",   # light blue — sleep (nightly + trait)
 }
 
 # ── Feature units (for axis labels) ─────────────────────────────────────────
@@ -55,15 +57,6 @@ FEATURE_UNITS = {
     "KCALS": "kcal",
     "MG": "mg", "ZN": "mg", "MN": "mg", "FE": "mg", "CAFF": "mg",
     "SE": "µg", "VITD": "µg",
-    # DC_RATIOS — dimensionless
-    **{f: "g/g" for f in [
-        "starch_fraction", "sugar_fraction", "free_sugar_fraction",
-        "protein_cho_ratio", "fat_sugar_ratio", "protein_sugar_ratio",
-        "n6_n3_ratio",
-    ]},
-    "rapid_glucose_equiv": _G_PER_MEAL,
-    "intrinsic_sugar": _G_PER_MEAL,
-    "glycaemic_brake": "weighted g/g",
     # G_COLS — glycaemic context
     "baseline_glucose_mmol": _MMOL_L,
     "past_1h_glucose_mean": _MMOL_L,
@@ -78,29 +71,16 @@ FEATURE_UNITS = {
     "glucose_at_t_minus_30": _MMOL_L,
     "past_4h_glucose_trend": "mmol/L/h",
     # T_COLS — temporal
-    "past_3h_cho": _G_PER_MEAL, "past_3h_sugar": _G_PER_MEAL,
-    "past_3h_fat": _G_PER_MEAL, "past_3h_prot": _G_PER_MEAL,
+    "past_3h_cho": _G_PER_MEAL,
     "time_since_last_meal_min": "min",
     "hour_of_day": "h",
     # P_COLS
     "sex": "0=M / 1=F",
-    # INTERACTION_COLS
-    "cho_x_baseline_glucose": "g·mmol/L",
-    "cho_x_mage": "g·mmol/L",
-    "cho_x_time_since_last_meal": "g·min",
-    "cho_x_fibre": "g²",
-    "cho_x_fat": "g²",
-    "cho_x_protein": "g²",
-    "cho_x_hour_of_day": "g·h",
-    "glucose_trend_x_hour_of_day": "mmol/L",
-    "mage_x_baseline_glucose": "(mmol/L)²",
 }
 
 
-
-
 def get_feature_group(feat):
-    if feat in cfg.DC_RAW or feat in cfg.DC_RATIOS:
+    if feat in cfg.DC_RAW:
         return "Dc"
     elif feat in cfg.G_COLS:
         return "G"
@@ -108,12 +88,8 @@ def get_feature_group(feat):
         return "T"
     elif feat in cfg.P_COLS:
         return "P"
-    elif feat in cfg.SLEEP_NIGHTLY_COLS:
+    elif feat in cfg.SLEEP_COLS:
         return "S"
-    elif feat in cfg.SLEEP_TRAIT_COLS:
-        return "St"
-    elif feat in cfg.INTERACTION_COLS:
-        return "I"
     return "?"
 
 
@@ -196,7 +172,7 @@ def main() -> None:
 
     mean_abs_shap = np.abs(shap_vals).mean(axis=0)
     feat_importance = pd.Series(mean_abs_shap, index=cfg.ALL_FEATURES)
-    dc_all = cfg.DC_RAW + cfg.DC_RATIOS
+    dc_all = cfg.DC_RAW
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ANALYSIS 1 — Beeswarm Summary (Top 20)
@@ -366,13 +342,19 @@ def main() -> None:
     print("=" * 60)
 
     shap_corr = pd.DataFrame(shap_vals, columns=cfg.ALL_FEATURES).corr()
-    shap_corr_dc = shap_corr.loc[dc_all, dc_all]
+    dc_importance = (
+        pd.Series(np.abs(shap_vals).mean(axis=0), index=cfg.ALL_FEATURES)
+        .loc[dc_all]
+        .sort_values(ascending=False)
+    )
+    top_dc = dc_importance.head(25).index.tolist()
+    shap_corr_dc = shap_corr.loc[top_dc, top_dc]
 
-    fig, ax = plt.subplots(figsize=(14, 12))
+    fig, ax = plt.subplots(figsize=(12, 10))
     mask_tri = np.triu(np.ones_like(shap_corr_dc, dtype=bool))
     sns.heatmap(shap_corr_dc, mask=mask_tri, cmap="RdBu_r", center=0,
                 vmin=-1, vmax=1, annot=False, ax=ax, linewidths=0.3)
-    ax.set_title("SHAP Value Correlation — Dc Features", fontsize=12)
+    ax.set_title("SHAP Value Correlation — Top 25 Dc Features (by mean |SHAP|)", fontsize=12)
     plt.tight_layout()
     p = shap_plot_dir / "04_shap_correlation_dc.png"
     plt.savefig(p, dpi=150, bbox_inches="tight")

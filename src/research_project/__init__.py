@@ -1,5 +1,5 @@
 """
-research_project package scaffold (Phase 1).
+iAUC prediction pipeline: data realignment, feature matrix, XGBoost training, SHAP.
 """
 
 import sys

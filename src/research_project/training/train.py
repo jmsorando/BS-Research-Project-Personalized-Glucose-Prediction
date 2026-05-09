@@ -26,7 +26,7 @@ from research_project import config as cfg
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 # Label for the ablation row that uses every feature group (same columns as ``load_data`` X).
-FULL_FEATURE_GROUP_ABLATION_LABEL = "Dc + G + T + P + S + St"
+FULL_FEATURE_GROUP_ABLATION_LABEL = "Dc + G + T + P + S"
 LAST_FIT_PARAMS_JSON = cfg.RESULTS_DIR / "last_fit_params.json"
 
 
@@ -208,14 +208,13 @@ def run_shap(model, X):
 
 
 def _feature_group_blocks():
-    """Ordered codes: Dc, G, T, P, nightly sleep (S), sleep trait (St)."""
+    """Ordered codes: Dc, G, T, P, sleep (S = nightly + trait)."""
     return (
-        ("Dc", cfg.DC_RAW + cfg.DC_RATIOS),
+        ("Dc", cfg.DC_RAW),
         ("G", cfg.G_COLS),
         ("T", cfg.T_COLS),
         ("P", cfg.P_COLS),
-        ("S", cfg.SLEEP_NIGHTLY_COLS),
-        ("St", cfg.SLEEP_TRAIT_COLS),
+        ("S", cfg.SLEEP_COLS),
     )
 
 
@@ -228,14 +227,13 @@ def plot_ablation_presence_matrix(
     Matrix-style ablation table: presence dots per feature block, # features,
     R² (CV mean), MAE (CV mean). Rows sorted by R² descending.
     """
-    matrix_order = ["G", "Dc", "T", "P", "S", "St"]
+    matrix_order = ["G", "Dc", "T", "P", "S"]
     col_headers = [
         "Glycemic\n(G)",
         "Diet comp.\n(Dc)",
         "Temporal\n(T)",
         "Personal\n(P)",
         "Sleep\n(S)",
-        "Sleep trait\n(St)",
     ]
 
     df = results.sort_values("R2_mean", ascending=False).reset_index(drop=True)
@@ -410,7 +408,7 @@ def ablation(X_full, y, groups, params: dict) -> pd.DataFrame:
     ax.set_yticks(y_pos)
     ax.set_yticklabels(results.label, fontsize=8)
     ax.set_xlabel("R² (10-fold GroupKFold CV)")
-    ax.set_title("Ablation — all feature-group combinations (Dc, G, T, P, S, St)")
+    ax.set_title("Ablation — all feature-group combinations (Dc, G, T, P, S)")
     xmax = max(results.R2_mean.max() + results.R2_std.max(), 0.05)
     for i, row in results.iterrows():
         ax.text(min(row.R2_mean + row.R2_std, xmax) + 0.005, i, f"{row.R2_mean:+.3f}", va="center", fontsize=7)

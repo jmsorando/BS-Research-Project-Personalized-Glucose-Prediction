@@ -20,19 +20,19 @@ Predict postprandial glycaemic response (PPGR) for real-world meals using XGBoos
 
 ## Background
 
-Postprandial glycaemic response varies dramatically between individuals eating identical meals. This project builds a machine-learning pipeline to predict PPGR from continuous glucose monitor (CGM) data linked to self-reported food diaries (MyFood24) across 68 participants and ~2,215 meal events.
+Postprandial glycaemic response varies dramatically between individuals eating identical meals. This project builds a machine-learning pipeline to predict PPGR from continuous glucose monitor (CGM) data linked to self-reported food diaries (MyFood24) across many participants and meal events.
 
-The upstream pipeline inverts the conventional approach: CGM traces are used to detect glucose excursions first, then food diary entries are matched to those excursions. This avoids reliance on self-reported meal times, which are unreliable. The nadir of each excursion (local minimum just before the glucose spike) serves as the iAUC baseline G₀, validated against Singh et al. (2025).
+The upstream pipeline inverts the conventional approach: CGM traces are used to detect glucose excursions first, then food diary entries are matched to those excursions. This avoids reliance on self-reported meal times, which are unreliable. The iAUC baseline is anchored at the **corrected meal time** (with a hybrid rule using the pre-excursion nadir when available); see `feature_matrix.py` and `config.py` for the exact definition.
 
 ```mermaid
 flowchart LR
-    A["CGM traces"] --> B["Excursion detection\n+ nadir baseline"]
+    A["CGM traces"] --> B["Excursion detection\n+ corrected times"]
     C["Food diary\n(MyFood24)"] --> D["Meal bundling"]
     B --> E["Meal–excursion\nmatching"]
     D --> E
     E --> F["corrected_meal_times_ALL.csv"]
     F --> G["Feature engineering\n(rp-build-feature-matrix)"]
-    G --> H["feature_matrix.csv\n(~2.2k rows × 110 cols)"]
+    G --> H["feature_matrix.csv\n(~3.3k rows × ~192 cols)"]
     H --> I["XGBoost\n(GroupKFold CV)"]
     I --> J["CV metrics\n+ SHAP + ablation"]
 ```
@@ -52,21 +52,22 @@ flowchart LR
 │   ├── pipeline.py                  # `rp-pipeline`: chained stages (realign → … → train, optional plots/SHAP)
 │   ├── data_pipeline/               # realign, build_realigned_source, feature_matrix
 │   ├── training/                    # train, plots
-│   └── analysis/                    # shap_analysis, shap_train_exports, shap_support
+│   └── analysis/                    # shap_analysis, shap_train_exports, shap_support, demographics
 │
 ├── source/                          # Raw input data (do not modify)
-│   ├── cgm_data/                    # 95 per-participant CGM files (Dexcom)
+│   ├── cgm_data/                    # Per-participant CGM files (Dexcom)
 │   │   └── CGM_<ParticipantID>.csv
-│   ├── patient_extract1602.csv      # MyFood24 food diary (16,216 rows, 168 columns)
-│   └── MyFood24 ID Matched(Sheet1).csv  # Participant ↔ MyFood24 ID mapping
+│   ├── patient_extract1602.csv      # MyFood24 food diary
+│   ├── MyFood24 ID Matched(Sheet1).csv  # Participant ↔ MyFood24 ID mapping
+│   ├── ABP Participant Features.csv   # Overnight sleep / HRV / PSQI (merged into feature matrix)
+│   └── Copia de ABP_participant_summary.xlsx  # Optional copy for `rp-demographics` (see Quick Start)
 │
 ├── output/                          # Pipeline outputs (Stages 1–3)
-│   ├── feature_matrix.csv           # XGBoost-ready matrix (~2.2k rows, 110 columns)
-│   ├── corrected_meal_times_ALL.csv # 5,200 meal events with CGM-corrected times
+│   ├── feature_matrix.csv           # XGBoost-ready matrix (~3.3k rows, ~192 columns)
+│   ├── corrected_meal_times_ALL.csv # Meal events with CGM-corrected times
 │   ├── patient_extract1602_realigned.csv  # Realigned food diary
-│   ├── processing_report.csv        # Per-participant match summary (105 rows)
-│   ├── plots/                       # Per-participant CGM overlay plots + global summary
-│   └── results/                     # Pruning analysis outputs
+│   ├── processing_report.csv        # Per-participant match summary from realign (not read by train/SHAP)
+│   └── plots/                       # Optional CGM overlay plots from upstream stages
 │
 ├── training_outputs/                # ML run artifacts (may be committed or regenerated locally)
 │   ├── models/                      # e.g. final_model.ubj, optuna_study.pkl
@@ -74,6 +75,8 @@ flowchart LR
 │   └── plots/                       # ablation, OOF scatter; `shap/` = full report from `rp-shap-report`;
 │                                    # `rp-train --shap` also writes flat `shap_summary.png` + `shap_dependence_top4.png`
 ```
+
+`rp-demographics` resolves the ABP participant-summary workbook from `source/` first, then the bundled file under `src/research_project/data_pipeline/` if needed.
 
 ---
 
@@ -91,6 +94,8 @@ pip install -r requirements.txt
 This exposes console commands (`rp-pipeline`, `rp-train`, `rp-realign`, …) and allows `python -m research_project...` invocations.
 
 **Full stack in one go:** `rp-pipeline` runs realign → build-realigned-source → feature-matrix → train; add `--plots`, `--shap`, `--tune`, `--ablation`, or `--all` for optional stages. Use `--skip-to STAGE` to resume.
+
+With `--tune`, the train stage already writes the publication iAUC + OOF figures, so `rp-pipeline` skips a redundant `rp-plots` stage. With `--shap`, it runs the full `rp-shap-report` after training and does **not** pass `--shap` into `rp-train` (avoids duplicate SHAP computation); use `rp-train --shap` only when you want the lightweight flat SHAP plots without the full report.
 
 ### Local CLI
 
@@ -126,6 +131,15 @@ rp-shap-report
 # or: python -m research_project.analysis.shap_analysis
 ```
 
+### Demographics summary (Table 1 style)
+
+Requires `output/feature_matrix.csv`. The workbook is loaded from `source/Copia de ABP_participant_summary.xlsx` when that file exists; otherwise from `src/research_project/data_pipeline/Copia de ABP_participant_summary.xlsx` (bundled fallback).
+
+```bash
+rp-demographics
+# or: python -m research_project.analysis.demographics
+```
+
 ### Upstream Pipeline (Data Preparation)
 
 If you need to rebuild `feature_matrix.csv` from raw data, run the three stages in order:
@@ -147,20 +161,20 @@ new participant drops.
 
 ## Feature Groups
 
-The feature matrix contains 110 columns total (after `rp-build-feature-matrix` with the current schema). Of those, 60 are model features organised into four groups, with 6 leakage columns reserved for validation only. Hand-crafted interaction terms (`cho_x_*`, etc.) are still computed in the matrix CSV but excluded from training: XGBoost discovers these relationships via tree splits, and keeping them out avoids splitting SHAP attribution away from parent features (e.g. CHO, baseline glucose). The **temporal** group keeps three features — `past_3h_cho` (second-meal CHO carryover), `time_since_last_meal_min` (recency), and `hour_of_day` (circadian). Dropped from the model (still in the CSV): `past_3h_sugar` (subset information vs. CHO), `past_3h_fat`, `past_3h_prot`. The label was changed from “diet temporal” to “temporal” because two of the three retained features are not diet-derived.
+The feature matrix CSV has on the order of **~190 columns** (ids, target, quality flags, validation/leakage columns, participant stratification fields, and model features). **Model features** are defined in `config.py` as `ALL_FEATURES` (currently **155** columns): diet composition (**Dc**), glycaemic context (**G**), temporal (**T**), participant (**P**), and sleep (**S**, nightly ABP metrics plus PSQI / chronotype traits). Six **leakage** columns exist for validation only and are never passed to the model.
+
+Hand-crafted interaction columns are **not** part of the current pipeline output; XGBoost discovers interactions via tree splits. Several engineered columns remain in the CSV for diagnostics but are listed in `INTENTIONALLY_EXCLUDED_MODEL_COLS` and are not used at training time.
 
 | Group | Code | Count | Description |
 |-------|------|------:|-------------|
-| Diet composition | **Dc** | 34 + 10 | 34 raw nutrients (CHO, FAT, PROT, KCALS, micronutrients, etc.) + 10 derived ratios (fat_cho_ratio, fibre_cho_ratio, glycaemic_brake, etc.) |
-| Glycaemic context | **G** | 12 | Pre-meal CGM state: baseline_glucose_mmol, past_4h_glucose_trend, 1h stats, 24h variability metrics (MAGE, CONGA, MODD, CV) |
-| Temporal | **T** | 3 | past_3h_cho (second-meal carryover), time_since_last_meal_min (temporal modifier), hour_of_day (circadian) |
+| Diet composition | **Dc** | 126 | Raw nutrients and related diary-derived composition (CHO, FAT, PROT, KCALS, micronutrients, etc.) |
+| Glycaemic context | **G** | 12 | Pre-meal CGM state: baseline_glucose_mmol, past_4h_glucose_trend, 1h stats, 24h variability metrics (MAGE, CONGA, MODD, …) |
+| Temporal | **T** | 3 | past_3h_cho, time_since_last_meal_min, hour_of_day |
 | Participant | **P** | 1 | sex |
+| Sleep | **S** | 13 | Nightly sleep / HRV from ABP plus psqi_scored, csm_total |
 | **Leakage** | -- | 6 | **NEVER use as features:** iAUC_mmol_h, excursion_rise_mmol, peak_glucose_mmol, etc. |
 
 Feature lists are defined in `src/research_project/config.py` — import `research_project.config` as the single source of truth for all column names.
-Some engineered columns are intentionally excluded from model training to reduce
-participant-specific bias and contextual over-conditioning; see
-`research_project.config.INTENTIONALLY_EXCLUDED_MODEL_COLS`.
 
 ---
 
@@ -173,7 +187,7 @@ participant-specific bias and contextual over-conditioning; see
 | Algorithm | XGBoost regressor (`xgboost.XGBRegressor`) |
 | Validation | 10-fold **GroupKFold** (split by `participant_id` — no data leakage across participants) |
 | Metrics | MAE, RMSE, R² |
-| Row filter | `iauc_status == "ok"` → ~2,150 usable rows from ~2,170 with computed iAUC |
+| Row filter | `iauc_status == "ok"` |
 | Encoding | `sex`: Male → 0, Female → 1 (only manual encoding; XGBoost handles NaN natively) |
 | Baseline hyperparams | Defined in `research_project.config.BASELINE_PARAMS` |
 | Optuna HPO | 100 trials, TPE sampler; search space in `research_project.config.OPTUNA_SEARCH_SPACE` |
@@ -185,7 +199,7 @@ participant-specific bias and contextual over-conditioning; see
 | *(none)* | Baseline 10-fold CV + train final model | ~4 min |
 | `--tune` | + Optuna hyperparameter optimisation (100 trials) | ~40–80 min |
 | `--shap` | + SHAP summary and top-4 dependence plots | ~5 min |
-| `--ablation` | + Feature-group ablation (all 15 non-empty combos of Dc, G, T, P) | ~10–20 min |
+| `--ablation` | + Feature-group ablation (31 non-empty subsets of Dc, G, T, P, S) | ~10–20 min |
 | `--all` | All of the above | ~90–120 min |
 | `--data PATH` | Override the default `feature_matrix.csv` path | — |
 
@@ -196,7 +210,7 @@ participant-specific bias and contextual over-conditioning; see
 3. **Tuning** *(optional)* — Optuna Bayesian search, save best params to `best_params.json`
 4. **Final model** — retrain on all data with the active params, save to `final_model.ubj`
 5. **SHAP** *(optional)* — TreeExplainer values, beeswarm + dependence plots
-6. **Ablation** *(optional)* — CV for every non-empty subset of the four feature blocks (15 rows), bar chart + presence matrix + `ablation_by_feature_group.csv`
+6. **Ablation** *(optional)* — CV for every non-empty subset of the five feature blocks (31 rows), bar chart + presence matrix + `ablation_by_feature_group.csv`
 
 ---
 
@@ -204,16 +218,14 @@ participant-specific bias and contextual over-conditioning; see
 
 ### Ablation Study
 
-The ablation study reveals that pre-meal glycaemic context dominates prediction, while diet composition alone carries no signal:
+The ablation study reveals that pre-meal glycaemic context dominates prediction, while diet composition alone carries limited signal in isolation:
 
 | Feature Set | n Features | R² (mean ± SD) |
 |-------------|----------:|----------------|
-| G only | 12 | ~+0.15 |
-| Dc only | 44 | ~−0.004 |
-| T only | 3 | ~−0.011 |
-| G + Dc + T + P (full) | 60 | modest improvement over G alone |
-
-Diet composition (Dc) and temporal (T) features perform worse than predicting the population mean when used in isolation, but contribute marginally when combined with glycaemic context. SHAP analysis at the feature level explains this finding — baseline glucose and glucose variability metrics dominate the SHAP importance ranking, while individual nutrient features have near-zero mean absolute SHAP values.
+| G only | 12 | strong vs. mean |
+| Dc only | 126 | weak in isolation |
+| T only | 3 | weak in isolation |
+| Full model (Dc + G + T + P + S) | 155 | best combined score |
 
 > Actual ablation scores are saved to `training_outputs/results/results.csv` after each run.
 
@@ -222,12 +234,12 @@ Diet composition (Dc) and temporal (T) features perform worse than predicting th
 ## Data Availability
 
 | File | Included in repo | Notes |
-|------|:---:|-------|
-| `output/feature_matrix.csv` | Yes (gittracked) | ~2.2k rows × 110 columns; contains participant-level data |
-| `source/` (CGM + diary) | Yes | Raw input data for the upstream pipeline |
+|------|:---:|------|
+| `output/feature_matrix.csv` | Yes (gittracked) | ~3.3k rows × ~192 columns; contains participant-level data |
+| `source/` (CGM + diary + ABP) | Yes | Raw input data for the upstream pipeline |
 | `training_outputs/` | Partially | Model, SHAP values, and plots are generated at runtime |
 
-The feature matrix and source data are included in this repository. If you only need to run the ML pipeline (`rp-train`), you need `output/feature_matrix.csv`. To rebuild it from scratch, you need the full `source/` directory.
+The feature matrix and source data are included in this repository. If you only need to run the ML pipeline (`rp-train`), you need `output/feature_matrix.csv`. To rebuild it from scratch, you need the full `source/` directory including `ABP Participant Features.csv`.
 
 ---
 

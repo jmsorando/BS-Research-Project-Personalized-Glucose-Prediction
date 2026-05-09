@@ -6,6 +6,10 @@ the iauc_status filter in the feature matrix (the cohort the model is trained
 on), decodes the quantised birth-sex codes via the patient extract, and writes
 a single long-format summary CSV alongside the other result tables.
 
+The workbook is resolved in order: ``source/Copia de ABP_participant_summary.xlsx``
+(if present), else the bundled copy under ``src/research_project/data_pipeline/``
+(so ``rp-demographics`` works when ``source/`` is gitignored or empty).
+
 After `pip install -e .`:
     rp-demographics
     # or: python -m research_project.analysis.demographics
@@ -22,14 +26,28 @@ import pandas as pd
 from research_project import config as cfg
 
 # ── Inputs ──────────────────────────────────────────────────────────────────
-DEMOGRAPHICS_WORKBOOK = (
-    cfg.REPO_ROOT
-    / "src"
-    / "research_project"
-    / "data_pipeline"
-    / "Copia de ABP_participant_summary.xlsx"
+_DEMOGRAPHICS_XLSX_NAME = "Copia de ABP_participant_summary.xlsx"
+_PACKAGE_DEMOGRAPHICS_FALLBACK = (
+    cfg.REPO_ROOT / "src" / "research_project" / "data_pipeline" / _DEMOGRAPHICS_XLSX_NAME
 )
 DEMOGRAPHICS_SHEET = "Sheet1"
+
+
+def resolve_demographics_workbook() -> Path:
+    """Prefer ``source/``; fall back to the copy shipped next to the data pipeline code."""
+    candidates = (
+        cfg.SOURCE_DIR / _DEMOGRAPHICS_XLSX_NAME,
+        _PACKAGE_DEMOGRAPHICS_FALLBACK,
+    )
+    for path in candidates:
+        if path.is_file():
+            return path
+    raise FileNotFoundError(
+        "Demographics workbook not found. Place it at:\n"
+        f"  {candidates[0]}\n"
+        "or restore the repository copy at:\n"
+        f"  {candidates[1]}"
+    )
 MYFOOD24_BRIDGE = cfg.SOURCE_DIR / "MyFood24 ID Matched(Sheet1).csv"
 PATIENT_EXTRACT = cfg.SOURCE_EXTRACT_DEFAULT  # source/patient_extract1602.csv
 
@@ -55,9 +73,9 @@ def _load_cohort_ids() -> set[str]:
     return set(map(str, cohort))
 
 
-def _load_demographics(cohort_ids: set[str]) -> pd.DataFrame:
+def _load_demographics(cohort_ids: set[str], workbook: Path) -> pd.DataFrame:
     """Return one row per cohort participant. Missing participants become all-NaN rows."""
-    df = pd.read_excel(DEMOGRAPHICS_WORKBOOK, sheet_name=DEMOGRAPHICS_SHEET)
+    df = pd.read_excel(workbook, sheet_name=DEMOGRAPHICS_SHEET)
     df[COL_PID] = df[COL_PID].astype(str)
     df = df[df[COL_PID].isin(cohort_ids)].drop_duplicates(subset=[COL_PID]).copy()
 
@@ -160,7 +178,10 @@ def main() -> None:
     cohort_ids = _load_cohort_ids()
     print(f"  Cohort size (iauc_status == {cfg.IAUC_STATUS!r}): {len(cohort_ids)}")
 
-    demo = _load_demographics(cohort_ids)
+    workbook = resolve_demographics_workbook()
+    print(f"  Demographics workbook: {workbook}")
+
+    demo = _load_demographics(cohort_ids, workbook)
     matched = int(demo[COL_AGE].notna().sum())
     print(f"  Demographics rows matched: {matched} / {len(cohort_ids)}")
 

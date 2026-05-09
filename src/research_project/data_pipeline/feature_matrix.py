@@ -36,7 +36,6 @@ G_FEATURE_MATRIX_COLS = [c for c in cfg.G_COLS if c != "baseline_glucose_mmol"] 
     "past_1h_glucose_range",
     "cv_glucose_24h",
 ]
-DC_RATIO_FEATURE_MATRIX_COLS = []
 DT_FEATURE_MATRIX_COLS = [
     "past_3h_kcal",
     "past_3h_cho",
@@ -51,7 +50,6 @@ DT_FEATURE_MATRIX_COLS = [
     "is_dinner",
     "is_snack",
 ]
-INTERACTION_FEATURE_MATRIX_COLS = []
 
 
 def _to_float_series(s: pd.Series) -> pd.Series:
@@ -558,40 +556,6 @@ def step5_diet_temporal(df, all_meals):
     return df
 
 
-def step6_derived_ratios(df):
-    print("\n  Step 6: Derived Nutrient Ratios (Dc enrichment)")
-    print("  " + "-" * 40)
-    cho = _to_float_series(df["CHO"]).fillna(0)
-    totsug = _to_float_series(df["TOTSUG"]).fillna(0)
-    star = _to_float_series(df["STAR"]).fillna(0)
-    free_sug = _to_float_series(df["FREE_SUGAR"]).fillna(0)
-    gluc = _to_float_series(df["GLUC"]).fillna(0)
-    sucr = _to_float_series(df["SUCR"]).fillna(0)
-    malt = _to_float_series(df["MALT"]).fillna(0)
-    fat = _to_float_series(df["FAT"]).fillna(0)
-    prot = _to_float_series(df["PROT"]).fillna(0)
-    fibre = _to_float_series(df["AOACFIB"]).fillna(0)
-    n6 = _to_float_series(df["TOTn6PFAC"]).fillna(0)
-    n3 = _to_float_series(df["TOTn3PFAC"]).fillna(0)
-    cho_safe = cho.clip(lower=0.1)
-    totsug_safe = totsug.clip(lower=0.1)
-    cho_safe_1 = cho.clip(lower=1.0)
-    n3_safe = n3.clip(lower=0.01)
-    df["starch_fraction"] = (star / cho_safe).round(4)
-    df["sugar_fraction"] = (totsug / cho_safe).round(4)
-    df["free_sugar_fraction"] = (free_sug / cho_safe).round(4)
-    df["rapid_glucose_equiv"] = (gluc + sucr * 0.5 + malt).round(4)
-    df["intrinsic_sugar"] = (totsug - free_sug).round(4)
-    df["fat_cho_ratio"] = (fat / cho_safe).round(4)
-    df["protein_cho_ratio"] = (prot / cho_safe).round(4)
-    df["fibre_cho_ratio"] = (fibre / cho_safe).round(4)
-    df["fat_sugar_ratio"] = (fat / totsug_safe).round(4)
-    df["protein_sugar_ratio"] = (prot / totsug_safe).round(4)
-    df["glycaemic_brake"] = ((prot * 3.27 + fat * 1.54 + fibre * 2.0) / cho_safe_1).round(4)
-    df["n6_n3_ratio"] = (n6 / n3_safe).round(4)
-    return df
-
-
 def step7_participant_features(df, all_meals, sex_map):
     print("\n  Step 7: Participant-Level Features")
     print("  " + "-" * 40)
@@ -722,20 +686,6 @@ def step8_sleep_features(df, sleep_df):
     return out
 
 
-def compute_interaction_features(df):
-    df["cho_x_baseline_glucose"] = df["CHO"] * df["baseline_glucose_mmol"]
-    df["cho_x_mage"] = df["CHO"] * df["mage_24h"]
-    df["cho_x_time_since_last_meal"] = df["CHO"] * df["time_since_last_meal_min"]
-    df["cho_x_fibre"] = df["CHO"] * df["ENGFIB"]
-    df["cho_x_fat"] = df["CHO"] * df["FAT"]
-    df["cho_x_protein"] = df["CHO"] * df["PROT"]
-    df["cho_x_hour_of_day"] = df["CHO"] * df["hour_of_day"]
-    df["glucose_trend_x_hour_of_day"] = df["past_4h_glucose_trend"] * df["hour_of_day"]
-    df["mage_x_baseline_glucose"] = df["mage_24h"] * df["baseline_glucose_mmol"]
-    df["cv_x_hour_of_day"] = df["cv_glucose_24h"] * df["hour_of_day"]
-    return df
-
-
 def main():
     print("=" * 72)
     print("  Feature Matrix Builder - XGBoost iAUC Prediction")
@@ -775,10 +725,8 @@ def main():
     target_cols = ["iAUC_mmol_min"]
     quality_cols = ["confidence", "match_type", "batch_day", "baseline_glucose_mmol", "n_readings", "pct_coverage", "max_gap_min", "iauc_status"]
     dc_nutrient_cols = NUTRIENT_COLS
-    dc_ratio_cols = DC_RATIO_FEATURE_MATRIX_COLS
     g_cols = G_FEATURE_MATRIX_COLS
     dt_cols = DT_FEATURE_MATRIX_COLS
-    interaction_cols = INTERACTION_FEATURE_MATRIX_COLS
     participant_cols = ["sex", "n_total_meals", "n_days_tracked", "mean_daily_kcal", "mean_daily_cho"]
     sleep_cols_fm = list(cfg.SLEEP_COLS)
     validation_cols = ["excursion_rise_mmol", "excursion_peak_mmol", "peak_glucose_mmol", "time_to_peak_min", "glucose_at_120min_mmol", "iAUC_mmol_h"]
@@ -789,10 +737,8 @@ def main():
         + target_cols
         + quality_cols
         + dc_nutrient_cols
-        + dc_ratio_cols
         + g_cols
         + dt_cols
-        + interaction_cols
         + participant_cols
         + sleep_cols_fm
         + validation_cols
