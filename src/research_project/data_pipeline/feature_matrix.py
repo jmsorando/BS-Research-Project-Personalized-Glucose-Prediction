@@ -2,7 +2,8 @@
 """
 Build XGBoost feature matrix for iAUC prediction.
 
-Each row is one glucose excursion and target is 2h postprandial iAUC.
+Each row is one glucose excursion and target is 2h postprandial iAUC
+(area above glucose at corrected_time, integrated to corrected_time + 2h).
 """
 from collections import Counter
 from datetime import timedelta
@@ -300,33 +301,25 @@ def step3_compute_iauc(df, cgm_cache, cgm_files):
             cgm_cache[pid] = _load_cgm(cgm_files[pid]) if pid in cgm_files else None
         cgm = cgm_cache[pid]
         for idx in sub.index:
-            nadir = df.loc[idx, "nadir_time"]
-            if pd.isna(nadir) or str(nadir).strip() == "":
-                conf = str(df.loc[idx, "confidence"])
-                df.loc[idx, "iauc_status"] = conf
-                status_counts[conf] += 1
+            t0_local = df.loc[idx, "corrected_time"]
+            if pd.isna(t0_local) or str(t0_local).strip() == "":
+                df.loc[idx, "iauc_status"] = "missing_corrected_time"
+                status_counts["missing_corrected_time"] += 1
                 continue
             if cgm is None or len(cgm) == 0:
                 df.loc[idx, "iauc_status"] = "no_cgm_file"
                 status_counts["no_cgm_file"] += 1
                 continue
             tz_off = _parse_tz_offset(df.loc[idx, "tz_offset"])
-            nadir_utc = pd.Timestamp(nadir).tz_localize(None) - tz_off
-            nadir_utc = nadir_utc.tz_localize("UTC")
-            diffs = (cgm["ts_utc"] - nadir_utc).abs()
-            nearest_idx = diffs.idxmin()
-            snap_min = diffs.loc[nearest_idx].total_seconds() / 60
-            if snap_min > MAX_NADIR_SNAP:
+            t0_utc = pd.Timestamp(t0_local).tz_localize(None) - tz_off
+            t0_utc = t0_utc.tz_localize("UTC")
+            g0 = _nearest_glucose(cgm, t0_utc, max_snap_min=MAX_NADIR_SNAP)
+            if pd.isna(g0):
                 df.loc[idx, "iauc_status"] = "insufficient_cgm"
                 status_counts["insufficient_cgm"] += 1
                 continue
-            g0 = cgm.loc[nearest_idx, "glucose"]
-            if np.isnan(g0):
-                df.loc[idx, "iauc_status"] = "insufficient_cgm"
-                status_counts["insufficient_cgm"] += 1
-                continue
-            window_end = nadir_utc + pd.Timedelta(minutes=WINDOW_MIN)
-            mask = (cgm["ts_utc"] >= nadir_utc - pd.Timedelta(seconds=30)) & (
+            window_end = t0_utc + pd.Timedelta(minutes=WINDOW_MIN)
+            mask = (cgm["ts_utc"] >= t0_utc - pd.Timedelta(seconds=30)) & (
                 cgm["ts_utc"] <= window_end + pd.Timedelta(seconds=30)
             )
             window = cgm.loc[mask].copy()
@@ -344,7 +337,7 @@ def step3_compute_iauc(df, cgm_cache, cgm_files):
                 peak_idx = valid_gl["glucose"].idxmax()
                 peak_gl = valid_gl.loc[peak_idx, "glucose"]
                 peak_ts = valid_gl.loc[peak_idx, "ts_utc"]
-                ttp = (peak_ts - nadir_utc).total_seconds() / 60
+                ttp = (peak_ts - t0_utc).total_seconds() / 60
             else:
                 peak_gl = np.nan
                 ttp = np.nan
@@ -399,11 +392,11 @@ def step4_glycaemic_features(df, cgm_cache):
         if cgm is None or len(cgm) == 0:
             continue
         for idx in df[df["participant_id"] == pid].index:
-            nadir = df.loc[idx, "nadir_time"]
-            if pd.isna(nadir) or str(nadir).strip() == "":
+            t0_local = df.loc[idx, "corrected_time"]
+            if pd.isna(t0_local) or str(t0_local).strip() == "":
                 continue
             tz_off = _parse_tz_offset(df.loc[idx, "tz_offset"])
-            t0_utc = pd.Timestamp(nadir).tz_localize(None) - tz_off
+            t0_utc = pd.Timestamp(t0_local).tz_localize(None) - tz_off
             t0_utc = t0_utc.tz_localize("UTC")
             mask_4h = (cgm["ts_utc"] >= t0_utc - pd.Timedelta(hours=4)) & (cgm["ts_utc"] <= t0_utc)
             window_4h = cgm.loc[mask_4h].dropna(subset=["glucose"])
