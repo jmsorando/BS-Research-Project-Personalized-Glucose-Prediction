@@ -33,6 +33,8 @@ COLOUR = {
     "Dc": "#D6604D",   # red-orange — diet composition
     "T": "#4DAC26",   # green — temporal
     "P":  "#7B2D8B",   # purple — participant covariates
+    "S":  "#80b1d3",   # light blue — nightly sleep / HRV
+    "St": "#fb9a99",   # light red — sleep trait (PSQI, chronotype)
     "I":  "#DDCC77",   # Tol muted gold — interactions
 }
 
@@ -106,6 +108,10 @@ def get_feature_group(feat):
         return "T"
     elif feat in cfg.P_COLS:
         return "P"
+    elif feat in cfg.SLEEP_NIGHTLY_COLS:
+        return "S"
+    elif feat in cfg.SLEEP_TRAIT_COLS:
+        return "St"
     elif feat in cfg.INTERACTION_COLS:
         return "I"
     return "?"

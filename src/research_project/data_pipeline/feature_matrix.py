@@ -3,7 +3,8 @@
 Build XGBoost feature matrix for iAUC prediction.
 
 Each row is one glucose excursion and target is 2h postprandial iAUC
-(area above glucose at corrected_time, integrated to corrected_time + 2h).
+(integral of max(g - g0, 0) from corrected_time for WINDOW_MIN minutes;
+ g0 = min(CGM at corrected_time, CGM at nadir_time) when nadir is available).
 """
 from collections import Counter
 from datetime import timedelta
@@ -103,6 +104,36 @@ def _normalise_date(d):
         return pd.Timestamp(d).strftime("%Y-%m-%d")
     except Exception:
         return None
+
+
+def _sleep_onset_wrapped_hour(onset: pd.Series, meal_date: pd.Series) -> pd.Series:
+    m = pd.to_datetime(meal_date, errors="coerce")
+    o = pd.to_datetime(onset, utc=True, errors="coerce")
+    o_clock = o.dt.tz_localize(None)
+    m_day = m.dt.normalize()
+    o_day = o_clock.dt.normalize()
+    h = (
+        o_clock.dt.hour.astype(float)
+        + o_clock.dt.minute.astype(float) / 60.0
+        + o_clock.dt.second.astype(float) / 3600.0
+    )
+    prev = o_day < m_day
+    same = o_day == m_day
+    early = h < 12.0
+    out = np.where(prev, h, np.where(same & early, h + 24.0, h))
+    result = pd.Series(out, index=onset.index, dtype=float)
+    return result.where(o.notna() & m.notna(), np.nan)
+
+
+def _sleep_offset_decimal_hour(offset_ts: pd.Series) -> pd.Series:
+    t = pd.to_datetime(offset_ts, utc=True, errors="coerce")
+    t_clock = t.dt.tz_localize(None)
+    h = (
+        t_clock.dt.hour.astype(float)
+        + t_clock.dt.minute.astype(float) / 60.0
+        + t_clock.dt.second.astype(float) / 3600.0
+    )
+    return h.where(t.notna(), np.nan)
 
 
 def _nearest_glucose(cgm, target_utc, max_snap_min=3):
@@ -313,11 +344,19 @@ def step3_compute_iauc(df, cgm_cache, cgm_files):
             tz_off = _parse_tz_offset(df.loc[idx, "tz_offset"])
             t0_utc = pd.Timestamp(t0_local).tz_localize(None) - tz_off
             t0_utc = t0_utc.tz_localize("UTC")
-            g0 = _nearest_glucose(cgm, t0_utc, max_snap_min=MAX_NADIR_SNAP)
-            if pd.isna(g0):
+            g_at_corrected = _nearest_glucose(cgm, t0_utc, max_snap_min=MAX_NADIR_SNAP)
+            nadir_local = df.loc[idx, "nadir_time"]
+            g_at_nadir = np.nan
+            if pd.notna(nadir_local) and str(nadir_local).strip() != "":
+                nadir_utc = pd.Timestamp(nadir_local).tz_localize(None) - tz_off
+                nadir_utc = nadir_utc.tz_localize("UTC")
+                g_at_nadir = _nearest_glucose(cgm, nadir_utc, max_snap_min=MAX_NADIR_SNAP)
+            candidates = [float(v) for v in (g_at_corrected, g_at_nadir) if not pd.isna(v)]
+            if not candidates:
                 df.loc[idx, "iauc_status"] = "insufficient_cgm"
                 status_counts["insufficient_cgm"] += 1
                 continue
+            g0 = min(candidates)
             window_end = t0_utc + pd.Timedelta(minutes=WINDOW_MIN)
             mask = (cgm["ts_utc"] >= t0_utc - pd.Timedelta(seconds=30)) & (
                 cgm["ts_utc"] <= window_end + pd.Timedelta(seconds=30)
@@ -586,6 +625,96 @@ def step7_participant_features(df, all_meals, sex_map):
     return df
 
 
+def step8_sleep_features(df, sleep_df):
+    print("\n  Step 8: Sleep features (S) — ABP overnight metrics")
+    print("  " + "-" * 40)
+    need = [
+        "participant_id",
+        "date",
+        "Total_Sleep_Time",
+        "Sleep_Efficiency",
+        "WASO",
+        "Time_in_Bed",
+        "SFI",
+        "Sleep_Onset",
+        "Sleep_Offset",
+        "LSEQ_scored",
+        "SDRR_night",
+        "RMSSD_night",
+        "LHR_night",
+    ]
+    missing = [c for c in need if c not in sleep_df.columns]
+    if missing:
+        raise ValueError(f"ABP file missing columns: {missing}")
+    s = sleep_df[need].copy()
+    s["participant_id"] = s["participant_id"].astype(str).str.strip()
+    s["date"] = s["date"].apply(_normalise_date)
+    s["sleep_onset_hour"] = _sleep_onset_wrapped_hour(s["Sleep_Onset"], s["date"])
+    s["sleep_offset_hour"] = _sleep_offset_decimal_hour(s["Sleep_Offset"])
+    s = s.rename(
+        columns={
+            "Total_Sleep_Time": "total_sleep_time_min",
+            "Sleep_Efficiency": "sleep_efficiency_pct",
+            "WASO": "waso_min",
+            "Time_in_Bed": "time_in_bed_min",
+            "SFI": "sleep_fragmentation_index",
+            "LSEQ_scored": "lseq_scored",
+            "SDRR_night": "sdrr_night",
+            "RMSSD_night": "rmssd_night",
+            "LHR_night": "lhr_night",
+        }
+    )
+    s = s.rename(columns={"date": "sleep_log_date"})
+    nightly_cols = [
+        "participant_id",
+        "sleep_log_date",
+        "total_sleep_time_min",
+        "sleep_efficiency_pct",
+        "waso_min",
+        "time_in_bed_min",
+        "sleep_fragmentation_index",
+        "sleep_onset_hour",
+        "sleep_offset_hour",
+        "lseq_scored",
+        "sdrr_night",
+        "rmssd_night",
+        "lhr_night",
+    ]
+    s = s[nightly_cols]
+    n_before = len(s)
+    s = s.drop_duplicates(["participant_id", "sleep_log_date"], keep="first")
+    if len(s) < n_before:
+        print(f"    Deduplicated ABP nightly rows: {n_before} -> {len(s)}")
+
+    df = df.copy()
+    df["_sleep_join_date"] = df["date"].apply(_normalise_date)
+    out = df.merge(
+        s,
+        left_on=["participant_id", "_sleep_join_date"],
+        right_on=["participant_id", "sleep_log_date"],
+        how="left",
+    )
+    out.drop(columns=["_sleep_join_date", "sleep_log_date"], inplace=True, errors="ignore")
+    n_night = int(out["sleep_fragmentation_index"].notna().sum())
+    print(f"    Meals with nightly sleep matched: {n_night} / {len(out)}")
+
+    trait_cols_src = ["PSQI_scored", "csm_total"]
+    if not all(c in sleep_df.columns for c in trait_cols_src):
+        raise ValueError(f"ABP file missing trait columns: {trait_cols_src}")
+    trait = (
+        sleep_df[["participant_id"] + trait_cols_src]
+        .assign(participant_id=lambda d: d["participant_id"].astype(str).str.strip())
+        .dropna(subset=trait_cols_src, how="all")
+        .groupby("participant_id", as_index=False)
+        .first()
+        .rename(columns={"PSQI_scored": "psqi_scored"})
+    )
+    out = out.merge(trait, on="participant_id", how="left")
+    n_trait = int(out["psqi_scored"].notna().sum())
+    print(f"    Meals with PSQI/CSM matched: {n_trait} / {len(out)}")
+    return out
+
+
 def compute_interaction_features(df):
     df["cho_x_baseline_glucose"] = df["CHO"] * df["baseline_glucose_mmol"]
     df["cho_x_mage"] = df["CHO"] * df["mage_24h"]
@@ -614,6 +743,9 @@ def main():
     sex_map = source.drop_duplicates("Patient Id").set_index("Patient Id")["Sex"].to_dict()
     cgm_files = {f.stem.replace("CGM_", ""): f for f in CGM_DIR.glob("CGM_*.csv")}
     print(f"    CGM files: {len(cgm_files)}")
+    abp_path = cfg.ABP_PARTICIPANT_FEATURES
+    sleep_df = pd.read_csv(abp_path, low_memory=False)
+    print(f"    ABP participant features: {len(sleep_df)} rows ({abp_path.name})")
     cgm_cache = {}
     all_meals = meals.copy()
     meals = step1_nutrient_enrichment(meals, extract)
@@ -622,6 +754,7 @@ def main():
     df = step4_glycaemic_features(df, cgm_cache)
     df = step5_diet_temporal(df, all_meals)
     df = step7_participant_features(df, all_meals, sex_map)
+    df = step8_sleep_features(df, sleep_df)
     print("\n  Assembling output...")
     if "event_id" in df.columns:
         df.rename(columns={"event_id": "event_ids"}, inplace=True)
@@ -640,10 +773,23 @@ def main():
     dt_cols = DT_FEATURE_MATRIX_COLS
     interaction_cols = INTERACTION_FEATURE_MATRIX_COLS
     participant_cols = ["sex", "n_total_meals", "n_days_tracked", "mean_daily_kcal", "mean_daily_cho"]
+    sleep_cols_fm = list(cfg.SLEEP_COLS)
     validation_cols = ["excursion_rise_mmol", "excursion_peak_mmol", "peak_glucose_mmol", "time_to_peak_min", "glucose_at_120min_mmol", "iAUC_mmol_h"]
     all_ordered = []
     seen = set()
-    for col in id_cols + target_cols + quality_cols + dc_nutrient_cols + dc_ratio_cols + g_cols + dt_cols + interaction_cols + participant_cols + validation_cols:
+    for col in (
+        id_cols
+        + target_cols
+        + quality_cols
+        + dc_nutrient_cols
+        + dc_ratio_cols
+        + g_cols
+        + dt_cols
+        + interaction_cols
+        + participant_cols
+        + sleep_cols_fm
+        + validation_cols
+    ):
         if col not in seen and col in df.columns:
             all_ordered.append(col)
             seen.add(col)

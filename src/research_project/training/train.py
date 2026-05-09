@@ -26,7 +26,7 @@ from research_project import config as cfg
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 # Label for the ablation row that uses every feature group (same columns as ``load_data`` X).
-FULL_FEATURE_GROUP_ABLATION_LABEL = "Dc + G + T + P"
+FULL_FEATURE_GROUP_ABLATION_LABEL = "Dc + G + T + P + S + St"
 LAST_FIT_PARAMS_JSON = cfg.RESULTS_DIR / "last_fit_params.json"
 
 
@@ -208,12 +208,14 @@ def run_shap(model, X):
 
 
 def _feature_group_blocks():
-    """Ordered codes match README: Dc, G, T, P."""
+    """Ordered codes: Dc, G, T, P, nightly sleep (S), sleep trait (St)."""
     return (
         ("Dc", cfg.DC_RAW + cfg.DC_RATIOS),
         ("G", cfg.G_COLS),
         ("T", cfg.T_COLS),
         ("P", cfg.P_COLS),
+        ("S", cfg.SLEEP_NIGHTLY_COLS),
+        ("St", cfg.SLEEP_TRAIT_COLS),
     )
 
 
@@ -226,19 +228,21 @@ def plot_ablation_presence_matrix(
     Matrix-style ablation table: presence dots per feature block, # features,
     R² (CV mean), MAE (CV mean). Rows sorted by R² descending.
     """
-    matrix_order = ["G", "Dc", "T", "P"]
+    matrix_order = ["G", "Dc", "T", "P", "S", "St"]
     col_headers = [
         "Glycemic\n(G)",
         "Diet comp.\n(Dc)",
         "Temporal\n(T)",
         "Personal\n(P)",
+        "Sleep\n(S)",
+        "Sleep trait\n(St)",
     ]
 
     df = results.sort_values("R2_mean", ascending=False).reset_index(drop=True)
     n_rows = len(df)
     text_color = "#1a1a1a"
 
-    fig_w, fig_h = 11.0, max(6.0, 0.32 * n_rows + 2.4)
+    fig_w, fig_h = 13.0, max(6.0, 0.32 * n_rows + 2.4)
     fig = plt.figure(figsize=(fig_w, fig_h))
     ax = fig.add_axes([0.07, 0.06, 0.72, 0.78])
 
@@ -330,7 +334,7 @@ def plot_ablation_presence_matrix(
             fontweight="bold",
         )
 
-    ax.set_xlim(x_dots[0] - 2.4, x_mae + 0.45)
+    ax.set_xlim(x_dots[0] - 2.4, x_mae + 0.55)
     ax.set_ylim(-0.75, n_rows + 1.02)
     ax.set_xticks(x_dots)
     ax.set_xticklabels([])
@@ -406,7 +410,7 @@ def ablation(X_full, y, groups, params: dict) -> pd.DataFrame:
     ax.set_yticks(y_pos)
     ax.set_yticklabels(results.label, fontsize=8)
     ax.set_xlabel("R² (10-fold GroupKFold CV)")
-    ax.set_title("Ablation — all feature-group combinations (Dc, G, T, P)")
+    ax.set_title("Ablation — all feature-group combinations (Dc, G, T, P, S, St)")
     xmax = max(results.R2_mean.max() + results.R2_std.max(), 0.05)
     for i, row in results.iterrows():
         ax.text(min(row.R2_mean + row.R2_std, xmax) + 0.005, i, f"{row.R2_mean:+.3f}", va="center", fontsize=7)

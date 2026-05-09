@@ -19,6 +19,7 @@ CGM_DIR = SOURCE_DIR / "cgm_data"
 REALIGNED_TIMES = OUTPUT_DATA_DIR / "corrected_meal_times_ALL.csv"
 REALIGNED_EXTRACT = OUTPUT_DATA_DIR / "patient_extract1602_realigned.csv"
 SOURCE_EXTRACT_DEFAULT = SOURCE_DIR / "patient_extract1602.csv"
+ABP_PARTICIPANT_FEATURES = SOURCE_DIR / "ABP Participant Features.csv"
 PIPELINE_INPUTS_META = OUTPUT_DATA_DIR / "pipeline_inputs.json"
 
 # ── Outputs (created at runtime if missing) ────────────────────────────────
@@ -196,6 +197,22 @@ P_COLS = [
     "sex",
 ]
 
+SLEEP_NIGHTLY_COLS = [
+    "total_sleep_time_min",
+    "sleep_efficiency_pct",
+    "waso_min",
+    "time_in_bed_min",
+    "sleep_fragmentation_index",
+    "sleep_onset_hour",
+    "sleep_offset_hour",
+    "lseq_scored",
+    "sdrr_night",
+    "rmssd_night",
+    "lhr_night",
+]
+SLEEP_TRAIT_COLS = ["psqi_scored", "csm_total"]
+SLEEP_COLS = SLEEP_NIGHTLY_COLS + SLEEP_TRAIT_COLS
+
 INTERACTION_COLS = []
 
 LEAKAGE_COLS = [
@@ -207,7 +224,7 @@ LEAKAGE_COLS = [
     "glucose_at_120min_mmol",
 ]
 
-ALL_FEATURES = DC_RAW + DC_RATIOS + G_COLS + T_COLS + P_COLS
+ALL_FEATURES = DC_RAW + DC_RATIOS + G_COLS + T_COLS + P_COLS + SLEEP_COLS
 
 INTENTIONALLY_EXCLUDED_MODEL_COLS = [
     "n_total_meals",
