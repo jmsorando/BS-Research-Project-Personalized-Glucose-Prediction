@@ -40,7 +40,7 @@ def plot_iauc_distribution() -> None:
 
     participants = sorted(cast(pd.Series, df["participant_id"]).unique())[:15]
     groups = [df.loc[df["participant_id"] == p, cfg.TARGET].values for p in participants]
-    ax2.boxplot(groups, labels=participants, showfliers=True)
+    ax2.boxplot(groups, tick_labels=participants, showfliers=True)
     ax2.set_xlabel("Participant ID")
     ax2.set_ylabel(f"iAUC ({UNIT})")
     ax2.set_title("(b) iAUC per participant (sample)")

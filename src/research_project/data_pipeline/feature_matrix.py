@@ -4,7 +4,8 @@ Build XGBoost feature matrix for iAUC prediction.
 
 Each row is one glucose excursion and target is 2h postprandial iAUC
 (integral of max(g - g0, 0) from corrected_time for WINDOW_MIN minutes;
- g0 = min(CGM at corrected_time, CGM at nadir_time) when nadir is available).
+ g0 = min(CGM at corrected_time, CGM at nadir_time when available,
+ min CGM in [corrected_time - 15min, corrected_time + 15min])).
 """
 from collections import Counter
 from datetime import timedelta
@@ -24,6 +25,7 @@ EXPECTED_READS = 25
 SENTINEL_LOW = 2.2
 SENTINEL_HIGH = 22.2
 MAX_NADIR_SNAP = 10
+BASELINE_SEARCH_MIN = 15
 GAP_FLAG_MIN = 15
 # Enrichment pulls the full configured Dc raw block.
 NUTRIENT_COLS = list(cfg.DC_RAW)
@@ -351,7 +353,12 @@ def step3_compute_iauc(df, cgm_cache, cgm_files):
                 nadir_utc = pd.Timestamp(nadir_local).tz_localize(None) - tz_off
                 nadir_utc = nadir_utc.tz_localize("UTC")
                 g_at_nadir = _nearest_glucose(cgm, nadir_utc, max_snap_min=MAX_NADIR_SNAP)
-            candidates = [float(v) for v in (g_at_corrected, g_at_nadir) if not pd.isna(v)]
+            base_mask = (cgm["ts_utc"] >= t0_utc - pd.Timedelta(minutes=BASELINE_SEARCH_MIN)) & (
+                cgm["ts_utc"] <= t0_utc + pd.Timedelta(minutes=BASELINE_SEARCH_MIN)
+            )
+            base_window = cgm.loc[base_mask, "glucose"].dropna()
+            g_local_min = float(base_window.min()) if len(base_window) else np.nan
+            candidates = [float(v) for v in (g_at_corrected, g_at_nadir, g_local_min) if not pd.isna(v)]
             if not candidates:
                 df.loc[idx, "iauc_status"] = "insufficient_cgm"
                 status_counts["insufficient_cgm"] += 1
