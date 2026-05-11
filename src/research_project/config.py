@@ -40,6 +40,14 @@ IAUC_STATUS = "ok"
 RANDOM_SEED = 42
 N_FOLDS = 10
 
+# Realignment-confidence filter: rows with these confidences have unreliable
+# meal-time alignment and are dropped at training-load time. Participants whose
+# fraction of bad-confidence rows exceeds PARTICIPANT_BAD_CONF_FRACTION are
+# dropped entirely (their surviving "good" rows are also suspect because the
+# matcher operated on poor diary input across the whole session).
+EXCLUDED_CONFIDENCES = ["low_batch_override", "no_match", "flat_trace", "cgm_gap"]
+PARTICIPANT_BAD_CONF_FRACTION = 0.5
+
 # ── Feature groups ──────────────────────────────────────────────────────────
 DC_RAW = [
     "totalVeg",

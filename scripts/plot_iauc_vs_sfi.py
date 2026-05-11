@@ -1,13 +1,12 @@
 """Scatter of participant mean iAUC vs mean Sleep Fragmentation Index."""
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from scipy import stats
 
 from research_project import config as cfg
+from research_project.training.train import load_training_table
 
-df = pd.read_csv(cfg.FEATURE_MATRIX)
-df = df[df.iauc_status == cfg.IAUC_STATUS]
+df = load_training_table()
 df = df.dropna(subset=["sleep_fragmentation_index", cfg.TARGET])
 
 agg = (

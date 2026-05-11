@@ -77,6 +77,24 @@ def load_training_table(path: Path = cfg.FEATURE_MATRIX) -> pd.DataFrame:
     df = df[df["iauc_status"] == cfg.IAUC_STATUS].copy()
     df["sex"] = df["sex"].map({"Male": 0, "Female": 1})
 
+    bad_conf = cfg.EXCLUDED_CONFIDENCES
+    p_total = df.groupby("participant_id").size()
+    p_bad = df[df["confidence"].isin(bad_conf)].groupby("participant_id").size()
+    p_bad_frac = (p_bad / p_total).fillna(0)
+    drop_pids = p_bad_frac[p_bad_frac > cfg.PARTICIPANT_BAD_CONF_FRACTION].index.tolist()
+    if drop_pids:
+        print(
+            f"[data]  dropping {len(drop_pids)} participants with "
+            f">{cfg.PARTICIPANT_BAD_CONF_FRACTION:.0%} low-confidence rows: "
+            f"{sorted(drop_pids)}"
+        )
+        df = df[~df["participant_id"].isin(drop_pids)].copy()
+    n_pre_conf = len(df)
+    df = df[~df["confidence"].isin(bad_conf)].copy()
+    n_dropped_rows = n_pre_conf - len(df)
+    if n_dropped_rows:
+        print(f"[data]  dropping {n_dropped_rows} rows with confidence in {bad_conf}")
+
     leakage_present = [c for c in cfg.LEAKAGE_COLS if c in cfg.ALL_FEATURES]
     assert not leakage_present, f"Leakage columns in feature list: {leakage_present}"
     missing_features, excluded_present = cfg.validate_feature_contract(df.columns)
